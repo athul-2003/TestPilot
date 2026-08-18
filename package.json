@@ -1,0 +1,46 @@
+{
+  "name": "testpilot",
+  "version": "0.0.0",
+  "description": "Launchable-style test selection, but open-source, self-hostable, explainable, and works with zero setup — built on Mastra.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "keywords": [
+    "ci",
+    "test-selection",
+    "test-impact-analysis",
+    "flaky-tests",
+    "mastra",
+    "ai-agent"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/athul-2003/TestPilot.git"
+  },
+  "scripts": {
+    "dev": "mastra dev",
+    "build": "mastra build",
+    "start": "mastra start",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@mastra/core": "1.59.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "latest",
+    "eslint": "^9.39.0",
+    "mastra": "1.25.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.46.0",
+    "vitest": "^3.2.4"
+  }
+}

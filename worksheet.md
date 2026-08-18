@@ -12,7 +12,7 @@
 
 | Phase | Name | Branch prefix | Status |
 |---|---|---|---|
-| 0 | Hello Mastra — environment proof | `phase/0-hello-mastra` | ⬜ Not started |
+| 0 | Hello Mastra — environment proof | `phase/0-hello-mastra` | ✅ Merged |
 | 1 | Read a diff | `phase/1-git-diff-tool` | ⬜ Not started |
 | 2 | Map the impact | `phase/2-impact-graph` | ⬜ Not started |
 | 3 | Select tests | `phase/3-test-selection` | ⬜ Not started |
@@ -32,7 +32,7 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Merged to `main`
 2. **Always leave the developer with something that runs.** No phase ends on a half-wired module.
 3. **Explain each new concept in 1–2 plain sentences the first time it appears** (Zod schema, async/await, workflow step, structured output). The developer is learning, not pasting.
 4. **The developer decides, the assistant designs.** Propose structure with a *why*; wait for approval or redirection.
-5. **Cheap model by default.** `"openai/gpt-5-mini"` during development. Only escalate to a stronger model for genuinely ambiguous selection cases, and only in Phase 3+.
+5. **Cheap model by default.** `groq/openai/gpt-oss-120b` for everyday work, `openai/gpt-5.4-mini` reserved for ambiguous selection calls and evaluation runs (see D8). Verify model IDs against the live registry rather than trusting any doc, including this one: `node .claude/skills/mastra/scripts/provider-registry.mjs --provider groq`.
 6. **Never commit secrets.** `OPENAI_API_KEY` lives in `.env`, which is gitignored. A committed `.env.example` documents the shape.
 7. **When a wizard prompts something not covered here, paste the exact prompt** rather than guessing an answer.
 
@@ -45,19 +45,22 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Merged to `main`
 **Concepts to introduce:** what a Mastra project is (agents + tools + workflows registered on one `Mastra` instance), what Studio is, why `"type": "module"` matters.
 
 **Steps**
-- [ ] Confirm `node --version` is 20+ (22+ preferred).
-- [ ] Scaffold with `npm create mastra@latest` — choose **Agents + Tools + Workflows**, provider **OpenAI**, install deps **yes**.
-- [ ] Reconcile the scaffold with this repo (the generated project must live at the repo root, not a nested `testpilot/` folder).
-- [ ] Create `.env` with `OPENAI_API_KEY=...`; create and commit `.env.example` with the key name and no value.
-- [ ] Confirm `package.json` has `"type": "module"`.
-- [ ] `npm run dev`, open Studio (typically `http://localhost:4111`), send the sample agent a message.
-- [ ] Add repo hygiene: `LICENSE` (Apache 2.0), a stub `README.md`, `tsconfig.json` reviewed.
+- [x] Confirm Node. **The brief is out of date here:** `create-mastra` now requires **≥22.13.0** and crashes outright on 20. Installed 24.19.0 LTS.
+- [x] Scaffold with `npm create mastra@latest --empty`. **The default template has changed** — it now produces an "Agent Harness" (shell tools, task tracking, web access, schedules), far more than Testpilot needs. `--empty` gives a clean `@mastra/core` base to build up from.
+- [x] Reconcile the scaffold into the repo root, not a nested folder.
+- [x] Create `.env` locally; commit `.env.example` documenting every variable with no values.
+- [x] Confirm `package.json` has `"type": "module"`.
+- [x] Write a minimal smoke agent (`--empty` ships no sample), register it, and confirm it replies through Studio.
+- [x] Add repo hygiene: Apache 2.0 `LICENSE`, `README.md`, reviewed `tsconfig.json`.
+- [x] Add the `typecheck` / `lint` / `test` / `build` scripts the `ship-phase` gates depend on — without them the automated merge flow has nothing to check.
 
-**Deliverables:** runnable Mastra scaffold, `.env.example`, Apache 2.0 `LICENSE`, stub README.
+**Deliverables:** runnable Mastra project, smoke agent, `.env.example`, Apache 2.0 `LICENSE`, README, four working quality gates, and the `.claude/skills/mastra/` reference pack the scaffolder ships.
 
-**Exit gate:** Studio starts and the sample agent replies with a real model response. `git status` shows no `.env` and no `node_modules`.
+**Exit gate:** ✅ Studio starts on `http://localhost:4111` and the agent returns a real model response (232 tokens via `groq/openai/gpt-oss-120b`). `git status` shows no `.env` and no `node_modules`.
 
-**Watch out for:** the scaffold wizard's folder layout — if it creates a subfolder, move contents up before the first commit, not after.
+**What actually bit:** three things, none of them the folder layout the brief warned about. Node 20 was hard-blocked. `@eslint/js` defaults to v10 and conflicts with ESLint 9 — pin it. And `tsc` rejects the `.ts` import extensions the runtime requires until `allowImportingTsExtensions` is set.
+
+**Worth knowing:** asked which model it was, the agent confidently answered "GPT-4o" while running on Groq. Models do not know their own identity. Read `provider` and `modelId` from `mastra api agent list` instead — the same mistrust applies to anything an agent asserts about itself later.
 
 ---
 
@@ -241,7 +244,8 @@ These were the gaps the brief left open. All are now decided, so no phase is blo
 | **D4** | The flaky run-budget formula | **Statistics decide the count; the LLM only detects patterns.** Given an observed per-run failure probability `p` for a flaky test, the repeats needed for a green result to mean something at confidence `c` is `n = ceil(log(1 - c) / log(p))`, with `c = 0.95` and `n` capped at **10** to bound CI cost. New tests with no history get a prior seeded from the repo's overall flake rate, tightened as runs accumulate. The `flaky-agent` contributes *structural* flags (timing, network, shared state, ordering, randomness, date/time), which raise the prior — they never produce the number directly. | Phase 5 |
 | **D5** | Cost & latency budget per PR run | **Measured from Phase 3, published in Phase 6, enforced from Phase 7.** Log tokens in/out and wall-clock per workflow run. Target: **under $0.05 and under 60s per PR** on a typical diff. Report it next to minutes-saved — a tool that sells CI savings must show its own cost, or the savings claim is unverifiable. | Phase 3 → 6 → 7 |
 | **D6** | Distribution: npm, GitHub Action, or both? | **Both.** An npm package carries the engine and stays usable locally, in Studio, and in any CI provider; a thin composite GitHub Action wraps it for drop-in use. The Action is a wrapper only — no logic lives there, so the two can never drift. | Phase 7 |
-| **D7** | Write the missing `MASTRA_KNOWLEDGE.md` / `TYPESCRIPT_FOR_MASTRA.md` companions? | **No.** The brief references both but neither exists. Rather than write docs that go stale as Mastra evolves, verify against the live docs at the start of each phase and explain TypeScript concepts inline as they first appear. The quick reference at the foot of this file is the durable summary, and it carries the date it was verified. | Ongoing |
+| **D7** | Write the missing `MASTRA_KNOWLEDGE.md` / `TYPESCRIPT_FOR_MASTRA.md` companions? | **No.** The brief references both but neither exists. Rather than write docs that go stale as Mastra evolves, verify against the live docs at the start of each phase and explain TypeScript concepts inline as they first appear. Phase 0 improved on this: `create-mastra` ships a `.claude/skills/mastra/` reference pack (core concepts, API, common errors, model selection, migration guide) that the tool keeps current — better than anything hand-written, because it does not rot. | Ongoing |
+| **D8** | Which provider, given a limited budget? | **Two tiers.** `TESTPILOT_MODEL` defaults to `groq/openai/gpt-oss-120b` for everyday work — development means running the same prompt hundreds of times, and metering that is how a side project quietly becomes expensive. `TESTPILOT_MODEL_CRITICAL` defaults to `openai/gpt-5.4-mini`, spent only on ambiguous selection calls and the Phase 6 evaluation runs whose numbers reach the README. This also proves the model-agnosticism the "self-hostable" claim rests on: if swapping providers is a one-line change for us, it is a one-line change for adopters. | Phase 0, exercised Phase 3+ |
 
 ### Consequences worth remembering
 
