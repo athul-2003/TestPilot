@@ -236,18 +236,24 @@ Check the squash commit message is the PR title plus a useful body, and edit it 
 
 ## Step 9 — Clean up and leave `main` current
 
-`--delete-branch` removes the remote branch. The local branch and the stale remote-tracking ref need clearing too, and `main` must end the run fully up to date:
+Run from the local checkout, `gh pr merge --delete-branch` deletes the remote branch, deletes the **local** branch, and checks out `main` for you. So Step 9 is mostly verification — but the stale remote-tracking ref survives, and `main` still needs pulling:
 
 ```bash
-git checkout main
-git pull --ff-only origin main
+git branch --show-current            # expect: main (gh already switched)
+git pull --ff-only origin main       # gh does not pull the squash commit for you
 git remote prune origin              # drop the stale origin/<branch> ref
-git branch -D <branch-name>          # -D, not -d: the squash merge leaves the branch "unmerged" to git
+git branch -D <branch-name> 2>/dev/null || true   # usually already gone; harmless if so
 git log --oneline -3                 # confirm the squash landed
 git branch -a                        # confirm only main remains, local and remote
+git status --short --branch          # confirm clean and level with origin/main
 ```
 
-`git branch -d` fails after a squash merge because the commits were rewritten — `-D` is correct here, and safe, because the work is already on `main`.
+Two things that will bite otherwise:
+
+- **`git branch -D`, never `-d`.** After a squash merge the commits are rewritten, so git considers the branch unmerged and `-d` refuses. `-D` is safe here because the work is already on `main`. If the branch is already gone, the command errors harmlessly — don't treat that as a failure.
+- **`gh` does not pull.** It merges server-side; your local `main` stays one commit behind until you pull. Leaving it stale is exactly the bug this step exists to prevent.
+
+The run is not finished until `git status --short --branch` reports a clean tree level with `origin/main`.
 
 Finish by confirming the state out loud: which PR merged, that the branch is gone from both sides, and that `main` is current.
 
@@ -320,8 +326,9 @@ gh pr checks --watch
 gh pr view <n> --json mergeable,mergeStateStatus,statusCheckRollup
 gh pr merge <n> --squash --delete-branch
 
-# 9. clean up, main current
-git checkout main && git pull --ff-only origin main
-git remote prune origin && git branch -D phase/2-impact-graph
-git branch -a
+# 9. clean up, main current (gh already deleted the branch and switched to main)
+git pull --ff-only origin main
+git remote prune origin
+git branch -D phase/2-impact-graph 2>/dev/null || true
+git branch -a && git status --short --branch
 ```
