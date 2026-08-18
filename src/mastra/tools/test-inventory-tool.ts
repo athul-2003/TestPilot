@@ -17,9 +17,9 @@ import { walkTypeScriptFiles } from './import-graph-tool.ts';
  * enough that the agent should think harder before including it.
  */
 
-const testTypeSchema = z.enum(['unit', 'integration', 'e2e']);
+export const testTypeSchema = z.enum(['unit', 'integration', 'e2e']);
 
-const testFileSchema = z.object({
+export const testFileSchema = z.object({
   path: z.string(),
   testType: testTypeSchema,
   classifiedBy: z

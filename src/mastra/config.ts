@@ -75,3 +75,20 @@ export const MAX_IMPACT_DEPTH = 6;
  * this project's own .gitignore already covers it.
  */
 export const IMPORT_GRAPH_CACHE_DIRNAME = '.testpilot-cache';
+
+/**
+ * Assumed CI minutes per test, by type, used only to estimate minutes saved
+ * by skipping.
+ *
+ * **These are placeholders, not measurements.** Testpilot has no real
+ * per-test timing data until Phase 5's test-history-tool starts recording
+ * actual run durations. Every place this constant is used must say so
+ * explicitly in its output — "estimated minutes saved" is the number people
+ * screenshot, and a hidden assumption here is exactly what would make the
+ * whole tool read as marketing instead of evidence.
+ */
+export const ASSUMED_MINUTES_PER_TEST: Record<'unit' | 'integration' | 'e2e', number> = {
+  unit: 0.1,
+  integration: 0.5,
+  e2e: 2,
+};

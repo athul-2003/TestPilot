@@ -1,0 +1,136 @@
+import { createTool } from '@mastra/core/tools';
+import { z } from 'zod';
+
+import { CONFIDENCE_THRESHOLD } from '../config.ts';
+import { confidenceSignalsSchema } from '../workflows/confidence.ts';
+
+/**
+ * Renders the workflow's result into the Markdown a human actually reads —
+ * the PR comment. Every other tool in this codebase produces structured
+ * data; this is the one whose entire job is turning structured data back
+ * into prose, because a JSON blob of buckets and confidence scores is not
+ * something a developer skims in thirty seconds on a pull request.
+ *
+ * The worksheet's own warning governs the whole design here: "estimated
+ * minutes saved" is the number people screenshot, so every number in this
+ * report states the assumption behind it in the same sentence, not in a
+ * separate document nobody reads before sharing the screenshot.
+ */
+
+const bucketSchema = z.enum(['must-run', 'should-run', 'skip']);
+
+const reportedSelectionSchema = z.object({
+  path: z.string(),
+  bucket: bucketSchema,
+  rationale: z.string(),
+  confidence: z.number(),
+});
+
+export const ciAnnotateInputSchema = z.object({
+  confidence: z.number().min(0).max(1),
+  signals: confidenceSignalsSchema,
+  fellBackToRunAll: z.boolean(),
+  estimatedMinutesSaved: z.number(),
+  /** Empty when `fellBackToRunAll` is true — there's no per-test rationale for "we ran everything". */
+  selections: z.array(reportedSelectionSchema),
+  totalTestCount: z.number(),
+});
+
+export const ciAnnotateOutputSchema = z.object({
+  markdown: z.string(),
+});
+
+export type CiAnnotateInput = z.infer<typeof ciAnnotateInputSchema>;
+export type ReportedSelection = z.infer<typeof reportedSelectionSchema>;
+
+function formatMinutes(minutes: number): string {
+  return minutes === 1 ? '1 minute' : `${minutes % 1 === 0 ? minutes : minutes.toFixed(1)} minutes`;
+}
+
+function bySection(selections: ReportedSelection[], bucket: ReportedSelection['bucket']): ReportedSelection[] {
+  return selections.filter((s) => s.bucket === bucket);
+}
+
+/**
+ * Returns '' for an empty bucket, so an absent section costs nothing in the
+ * final report rather than an empty heading. No trailing newline — sections
+ * are joined with a blank line between them by the caller, so one here would
+ * double up.
+ */
+function renderSection(title: string, icon: string, entries: ReportedSelection[]): string {
+  if (entries.length === 0) return '';
+  const lines = entries.map((e) => `- \`${e.path}\` — ${e.rationale} (confidence ${e.confidence.toFixed(2)})`);
+  return `### ${icon} ${title}\n\n${lines.join('\n')}`;
+}
+
+function renderSignalsTable(signals: CiAnnotateInput['signals']): string {
+  return [
+    '<details>',
+    '<summary>Confidence signals</summary>',
+    '',
+    '| Signal | Value |',
+    '|---|---|',
+    `| Diff completeness | ${signals.diffCompleteness.toFixed(2)} |`,
+    `| Graph coverage | ${signals.graphCoverage.toFixed(2)} |`,
+    `| Graph certainty | ${signals.graphCertainty.toFixed(2)} |`,
+    `| Selection completeness | ${signals.selectionCompleteness.toFixed(2)} |`,
+    '',
+    '</details>',
+  ].join('\n');
+}
+
+const FOOTNOTE =
+  '*Estimated minutes saved assumes 0.1 min/unit test, 0.5 min/integration test, 2 min/e2e test — ' +
+  'placeholders until real historical run-time data is tracked (Phase 5), not measurements. ' +
+  'Confidence is a weighted score over observable signals — never invented by the model — ' +
+  "and this run's threshold is a starting value pending calibration (Phase 6).*";
+
+/**
+ * Renders the final Markdown report. Pure formatting — every number it
+ * prints was computed elsewhere (`confidence.ts` for the score,
+ * `impact-agent.ts` for the selections, the workflow for the estimate); this
+ * function's only job is presenting them honestly.
+ */
+export function renderReport(input: CiAnnotateInput): string {
+  const sections: string[] = ['## Testpilot test selection'];
+
+  if (input.fellBackToRunAll) {
+    sections.push(
+      `**Confidence: ${input.confidence.toFixed(2)}** (threshold ${CONFIDENCE_THRESHOLD}) — below threshold. ` +
+        'Falling back to running the full suite as a safety net; nothing was skipped this run.\n\n' +
+        `- ▶️ **${input.totalTestCount} test${input.totalTestCount === 1 ? '' : 's'} run** (all of them)\n` +
+        '- ⏭️ **0 skipped** — **0 minutes** saved this run',
+    );
+  } else {
+    const mustRun = bySection(input.selections, 'must-run');
+    const shouldRun = bySection(input.selections, 'should-run');
+    const skip = bySection(input.selections, 'skip');
+
+    sections.push(
+      `**Confidence: ${input.confidence.toFixed(2)}** (threshold ${CONFIDENCE_THRESHOLD}) — reasoning trusted, running the selected set.\n\n` +
+        `- ✅ **${mustRun.length} must-run**\n` +
+        `- 🟡 **${shouldRun.length} should-run**\n` +
+        `- ⏭️ **${skip.length} skipped** — estimated **${formatMinutes(input.estimatedMinutesSaved)}** saved`,
+    );
+
+    for (const section of [renderSection('Must run', '✅', mustRun), renderSection('Should run', '🟡', shouldRun), renderSection('Skipped', '⏭️', skip)]) {
+      if (section) sections.push(section);
+    }
+  }
+
+  sections.push(renderSignalsTable(input.signals));
+  sections.push(FOOTNOTE);
+
+  return sections.join('\n\n');
+}
+
+export const ciAnnotateTool = createTool({
+  id: 'ci-annotate-tool',
+  description:
+    'Renders a test-selection result into a Markdown PR comment: what runs, what was skipped and why, ' +
+    'the confidence score and its threshold, estimated minutes saved with its assumptions stated plainly, ' +
+    'and an explicit fell-back-to-run-all state when confidence was too low to trust.',
+  inputSchema: ciAnnotateInputSchema,
+  outputSchema: ciAnnotateOutputSchema,
+  execute: async (inputData) => ({ markdown: renderReport(inputData) }),
+});
