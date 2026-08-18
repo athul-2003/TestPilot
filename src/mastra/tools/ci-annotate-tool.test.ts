@@ -13,6 +13,7 @@ function baseInput(overrides: Partial<CiAnnotateInput> = {}): CiAnnotateInput {
     estimatedMinutesSaved: 0,
     selections: [],
     totalTestCount: 0,
+    flakyBudgets: [],
     ...overrides,
   };
 }
@@ -78,5 +79,48 @@ describe('renderReport', () => {
     const report = renderReport(baseInput());
     expect(report).toContain('| Diff completeness | 0.90 |');
     expect(report).toContain('| Graph certainty | 0.80 |');
+  });
+
+  it('renders a flaky-risk section with structural flags when present', () => {
+    const report = renderReport(
+      baseInput({
+        flakyBudgets: [
+          {
+            testPath: 'src/new.test.ts',
+            budget: 8,
+            priorSource: 'default',
+            riskLevel: 'high',
+            structuralFlags: [{ pattern: 'network', rationale: 'Calls a real HTTP endpoint.' }],
+          },
+          {
+            testPath: 'src/unstable.test.ts',
+            budget: 3,
+            priorSource: 'test-history',
+            structuralFlags: [],
+          },
+        ],
+      }),
+    );
+
+    expect(report).toContain('### 🎲 Flaky risk');
+    expect(report).toContain('`src/new.test.ts` — **8 repeat runs** (prior: default, risk high)');
+    expect(report).toContain('*network*: Calls a real HTTP endpoint.');
+    expect(report).toContain('`src/unstable.test.ts` — **3 repeat runs** (prior: test-history)');
+    expect(report).toMatch(/formula over observed failure rate, not from a model guess/);
+  });
+
+  it('omits the flaky-risk section entirely when nothing needed a budget', () => {
+    const report = renderReport(baseInput({ flakyBudgets: [] }));
+    expect(report).not.toContain('Flaky risk');
+  });
+
+  it('singularizes "repeat run" for a budget of exactly one', () => {
+    const report = renderReport(
+      baseInput({
+        flakyBudgets: [{ testPath: 'src/x.test.ts', budget: 1, priorSource: 'default', structuralFlags: [] }],
+      }),
+    );
+    expect(report).toContain('**1 repeat run**');
+    expect(report).not.toContain('1 repeat runs');
   });
 });

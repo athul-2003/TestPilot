@@ -26,6 +26,20 @@ const reportedSelectionSchema = z.object({
   confidence: z.number(),
 });
 
+// Declared locally rather than imported from flaky-agent.ts, the same
+// convention `reportedSelectionSchema` above already follows for
+// impact-agent's shape — this tool renders whatever compatible structure
+// it's given without depending on the agents layer.
+const flakyPatternSchema = z.enum(['timing', 'network', 'shared-state', 'order-dependence', 'randomness', 'date-time']);
+
+export const flakyBudgetEntrySchema = z.object({
+  testPath: z.string(),
+  budget: z.number(),
+  priorSource: z.enum(['test-history', 'repo-fallback', 'default']),
+  riskLevel: z.enum(['low', 'medium', 'high']).optional(),
+  structuralFlags: z.array(z.object({ pattern: flakyPatternSchema, rationale: z.string() })),
+});
+
 export const ciAnnotateInputSchema = z.object({
   confidence: z.number().min(0).max(1),
   signals: confidenceSignalsSchema,
@@ -34,6 +48,8 @@ export const ciAnnotateInputSchema = z.object({
   /** Empty when `fellBackToRunAll` is true — there's no per-test rationale for "we ran everything". */
   selections: z.array(reportedSelectionSchema),
   totalTestCount: z.number(),
+  /** New or historically-unstable tests that received a repeat-run budget (decision D4). Empty when there are none. */
+  flakyBudgets: z.array(flakyBudgetEntrySchema),
 });
 
 export const ciAnnotateOutputSchema = z.object({
@@ -42,6 +58,7 @@ export const ciAnnotateOutputSchema = z.object({
 
 export type CiAnnotateInput = z.infer<typeof ciAnnotateInputSchema>;
 export type ReportedSelection = z.infer<typeof reportedSelectionSchema>;
+export type ReportedFlakyBudget = z.infer<typeof flakyBudgetEntrySchema>;
 
 function formatMinutes(minutes: number): string {
   return minutes === 1 ? '1 minute' : `${minutes % 1 === 0 ? minutes : minutes.toFixed(1)} minutes`;
@@ -63,6 +80,22 @@ function renderSection(title: string, icon: string, entries: ReportedSelection[]
   return `### ${icon} ${title}\n\n${lines.join('\n')}`;
 }
 
+/** Returns '' when there's nothing to report — most runs touch no new or historically-unstable tests. */
+function renderFlakySection(budgets: ReportedFlakyBudget[]): string {
+  if (budgets.length === 0) return '';
+
+  const lines = budgets.map((b) => {
+    const risk = b.riskLevel ? `, risk ${b.riskLevel}` : '';
+    const runWord = b.budget === 1 ? 'run' : 'runs';
+    const header = `- \`${b.testPath}\` — **${b.budget} repeat ${runWord}** (prior: ${b.priorSource}${risk})`;
+    if (b.structuralFlags.length === 0) return header;
+    const flagLines = b.structuralFlags.map((f) => `  - *${f.pattern}*: ${f.rationale}`);
+    return [header, ...flagLines].join('\n');
+  });
+
+  return `### 🎲 Flaky risk\n\n${lines.join('\n')}`;
+}
+
 function renderSignalsTable(signals: CiAnnotateInput['signals']): string {
   return [
     '<details>',
@@ -81,9 +114,11 @@ function renderSignalsTable(signals: CiAnnotateInput['signals']): string {
 
 const FOOTNOTE =
   '*Estimated minutes saved assumes 0.1 min/unit test, 0.5 min/integration test, 2 min/e2e test — ' +
-  'placeholders until real historical run-time data is tracked (Phase 5), not measurements. ' +
+  'placeholders until real historical run-time data is tracked, not measurements. ' +
   'Confidence is a weighted score over observable signals — never invented by the model — ' +
-  "and this run's threshold is a starting value pending calibration (Phase 6).*";
+  "and this run's threshold is a starting value pending calibration (Phase 6). Flaky repeat-run budgets " +
+  'come from a formula over observed failure rate, not from a model guess — structural flags only ever ' +
+  'raise the prior that formula runs on.*';
 
 /**
  * Renders the final Markdown report. Pure formatting — every number it
@@ -117,6 +152,9 @@ export function renderReport(input: CiAnnotateInput): string {
       if (section) sections.push(section);
     }
   }
+
+  const flakySection = renderFlakySection(input.flakyBudgets);
+  if (flakySection) sections.push(flakySection);
 
   sections.push(renderSignalsTable(input.signals));
   sections.push(FOOTNOTE);

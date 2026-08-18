@@ -1,11 +1,14 @@
 import { Mastra } from '@mastra/core/mastra';
+import { LibSQLStore } from '@mastra/libsql';
 
+import { flakyAgent } from './agents/flaky-agent.ts';
 import { impactAgent } from './agents/impact-agent.ts';
 import { smokeAgent } from './agents/smoke-agent.ts';
 import { astParseTool } from './tools/ast-parse-tool.ts';
 import { ciAnnotateTool } from './tools/ci-annotate-tool.ts';
 import { gitDiffTool } from './tools/git-diff-tool.ts';
 import { importGraphTool } from './tools/import-graph-tool.ts';
+import { testHistoryTool } from './tools/test-history-tool.ts';
 import { testInventoryTool } from './tools/test-inventory-tool.ts';
 import { triageWorkflow } from './workflows/triage-workflow.ts';
 
@@ -21,11 +24,21 @@ import { triageWorkflow } from './workflows/triage-workflow.ts';
  * The key an agent, tool, or workflow is registered under is the name Studio
  * shows and the name the API/CLI expects — so it is part of the public
  * surface, not an internal detail.
+ *
+ * `storage` here is Testpilot's *own* operational store (Memory requires a
+ * storage provider; `LibSQLStore` needs an `id`) — not where flaky-test
+ * history lives. `LibSQLStore`'s domains (memory, workflows, scores, ...)
+ * are a fixed schema for Mastra's own internal concerns with no generic
+ * "store your own table" API, so `test-history-tool.ts` uses `@libsql/client`
+ * directly, against its own per-repo database file. Both are the same
+ * underlying technology; they solve two different, deliberately separate
+ * problems.
  */
 export const mastra = new Mastra({
   agents: {
     smokeAgent,
     impactAgent,
+    flakyAgent,
   },
   tools: {
     gitDiffTool,
@@ -33,8 +46,10 @@ export const mastra = new Mastra({
     importGraphTool,
     testInventoryTool,
     ciAnnotateTool,
+    testHistoryTool,
   },
   workflows: {
     triageWorkflow,
   },
+  storage: new LibSQLStore({ id: 'testpilot-storage', url: 'file:./testpilot-storage.db' }),
 });
