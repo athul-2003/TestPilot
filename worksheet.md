@@ -13,7 +13,7 @@
 | Phase | Name | Branch prefix | Status |
 |---|---|---|---|
 | 0 | Hello Mastra — environment proof | `phase/0-hello-mastra` | ✅ Merged |
-| 1 | Read a diff | `phase/1-git-diff-tool` | ⬜ Not started |
+| 1 | Read a diff | `phase/1-git-diff-tool` | ✅ Merged |
 | 2 | Map the impact | `phase/2-impact-graph` | ⬜ Not started |
 | 3 | Select tests | `phase/3-test-selection` | ⬜ Not started |
 | 4 | Report, confidence & fallback | `phase/4-report-confidence` | ⬜ Not started |
@@ -71,19 +71,20 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Merged to `main`
 **Concepts to introduce:** `createTool()`, Zod input/output schemas, why the tool's `execute` receives `(validatedInput, executionContext)`.
 
 **Steps**
-- [ ] Define the Zod `inputSchema` (unified diff text) and `outputSchema` (files with path, change type, added/removed line ranges, touched symbol names).
-- [ ] Implement unified-diff parsing: file headers, hunk headers, added/removed lines.
-- [ ] Handle the awkward cases explicitly: renames, deletions, binary files, new files, and diffs with no TS content.
-- [ ] Implement the diff-acquisition contract from **D1**: `git diff` against the merge base (`git merge-base origin/main HEAD`), same string shape whether run locally, in Studio, or from the Action.
-- [ ] Enforce the **~40k character** ceiling from D1 — truncate per-file, note it in the output, and signal it so Phase 4 can drop confidence accordingly.
-- [ ] Test in Studio by pasting a small sample diff; save 3–4 sample diffs under `fixtures/diffs/` for reuse.
-- [ ] Unit tests (Vitest) over the saved fixture diffs.
+- [x] Define the Zod `inputSchema` (unified diff text) and `outputSchema` (files with path, change type, hunks, candidate symbol names, per-file `truncated` flag).
+- [x] Implement unified-diff parsing by hand: file headers, rename/new/deleted markers, hunk headers, added/removed lines.
+- [x] Handle the awkward cases explicitly: renames (`oldPath` + `path`), deletions, binary files (`Binary files ... differ`, no hunks), new files (`oldStart`/`oldLines` at 0), and non-TS files (`isTypeScript: false`, parsed like any other text file).
+- [x] Enforce the **~40k character** ceiling from D1 — truncate per-file past the budget, with the file that *crosses* the ceiling still parsed in full so one large file can't starve every file after it. Signalled via a per-file `truncated` flag and a top-level `truncated` flag.
+- [x] Save 5 fixture diffs under `fixtures/diffs/`, one per distinct case, and feed each through the live server with `mastra api tool execute git-diff-tool`.
+- [x] Unit tests (Vitest) over the fixtures, plus synthetic tests for the empty-diff and truncation-ceiling cases that don't need a committed fixture.
 
-**Deliverables:** `git-diff-tool.ts`, `fixtures/diffs/*`, passing unit tests.
+**Note:** D1's diff-acquisition contract (`git diff` against the merge base) is **not yet wired to a live git repo** — that lands when the tool has something to call it *from* (a workflow step in Phase 4, or the Action in Phase 7). This phase builds the parser and proves it on hand-written fixtures; Phase 4 is where `git merge-base origin/main HEAD` actually runs.
 
-**Exit gate:** feeding each fixture diff in Studio returns the correct changed-file list and symbol names; unit tests green.
+**Deliverables:** `git-diff-tool.ts` (parser + `createTool()` wrapper, registered on the Mastra instance), `fixtures/diffs/*` (5 files), `git-diff-tool.test.ts` (12 tests).
 
-**Watch out for:** symbol extraction from raw diff text is unreliable for anything non-trivial. Extract *candidate* names here; authoritative symbols come from the AST in Phase 2.
+**Exit gate:** ✅ Met. All four quality gates pass (typecheck, lint, 12/12 tests, build). Each of the 5 fixtures was fed through the running dev server via `mastra api tool execute git-diff-tool` and returned the correct file list, change type, hunk line numbers, and candidate symbols — verified against the live API, not just the unit tests.
+
+**Watch out for:** confirmed in practice — `candidateSymbols` only sees lines that were actually added or removed. In the modify fixture, changing a `return` statement inside an untouched `export function subtract(...)` correctly produces *no* symbol, because the declaration line itself never appears in the diff. A first implementation of the test assumed the enclosing function name would show up; it doesn't, and shouldn't — that's exactly the "candidate, not authoritative" limitation Phase 2's AST parse exists to fix.
 
 ---
 
