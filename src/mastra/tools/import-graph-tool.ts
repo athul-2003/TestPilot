@@ -89,8 +89,12 @@ const DEFAULT_EXCLUDE_DIRS = new Set([
   'out',
 ]);
 
-/** Repo-relative, forward-slash paths of every .ts/.tsx file, .d.ts excluded. */
-function walkTypeScriptFiles(repoRoot: string, cacheDirName: string): string[] {
+/**
+ * Repo-relative, forward-slash paths of every .ts/.tsx file, .d.ts excluded.
+ * Exported for reuse by test-inventory-tool.ts, so the excluded-directories
+ * list and the walking logic itself live in exactly one place.
+ */
+export function walkTypeScriptFiles(repoRoot: string, cacheDirName: string): string[] {
   const excluded = new Set([...DEFAULT_EXCLUDE_DIRS, cacheDirName]);
   const results: string[] = [];
 
