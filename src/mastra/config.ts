@@ -57,3 +57,21 @@ export const CONFIDENCE_THRESHOLD = Number(
  * confidently about code it never saw.
  */
 export const MAX_DIFF_CHARS = 40_000;
+
+/**
+ * How many hops the import graph follows when looking for a changed file's
+ * dependents, before giving up and flagging `depthLimitReached`.
+ *
+ * A real dependency chain rarely runs deeper than this; a depth limit this
+ * low mainly protects against pathological graphs (a cycle, or a repo with
+ * unusually tangled imports) turning a single changed file into an
+ * unbounded walk.
+ */
+export const MAX_IMPACT_DEPTH = 6;
+
+/**
+ * Cache directory name, created inside whichever repo Testpilot is analysing
+ * — not this one. Must stay gitignored in every repo Testpilot runs against;
+ * this project's own .gitignore already covers it.
+ */
+export const IMPORT_GRAPH_CACHE_DIRNAME = '.testpilot-cache';
