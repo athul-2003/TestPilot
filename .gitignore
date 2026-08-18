@@ -19,11 +19,13 @@ build/
 *.pem
 *.key
 
-# Local databases (LibSQL / SQLite storage)
+# Local databases (LibSQL / SQLite / DuckDB storage)
 *.db
-*.db-journal
+*.db-*
 *.sqlite
 *.sqlite3
+*.duckdb
+*.duckdb.wal
 mastra.db*
 
 # Logs
