@@ -14,7 +14,7 @@
 |---|---|---|---|
 | 0 | Hello Mastra — environment proof | `phase/0-hello-mastra` | ✅ Merged |
 | 1 | Read a diff | `phase/1-git-diff-tool` | ✅ Merged |
-| 2 | Map the impact | `phase/2-impact-graph` | ⬜ Not started |
+| 2 | Map the impact | `phase/2-impact-graph` | ✅ Merged |
 | 3 | Select tests | `phase/3-test-selection` | ⬜ Not started |
 | 4 | Report, confidence & fallback | `phase/4-report-confidence` | ⬜ Not started |
 | 5 | Flaky budget | `phase/5-flaky-budget` | ⬜ Not started |
@@ -95,19 +95,21 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Merged to `main`
 **Concepts to introduce:** what an AST is (code as a tree you can query), why a reverse-dependency map answers "who breaks if this changes", why caching matters.
 
 **Steps**
-- [ ] Choose the TS parsing approach (TypeScript compiler API vs `ts-morph` vs a lightweight import regex) and record the trade-off in the PR description.
-- [ ] `ast-parse-tool.ts`: extract imports, exports and top-level declarations from a TS file.
-- [ ] `import-graph-tool.ts`: build a forward graph, invert it to "who imports whom", and cache it on disk (cache dir must be gitignored).
-- [ ] Handle path aliases (`tsconfig` `paths`), barrel files (`index.ts` re-exports), and dynamic `import()`.
-- [ ] Add cache invalidation keyed on file mtime/hash.
-- [ ] Support transitive reach with a documented depth limit.
-- [ ] Unit tests on a small sample source tree with a known dependency shape.
+- [x] Chose the **raw TypeScript compiler API** (`ts.createSourceFile`, syntactic-only, no type checker) over `ts-morph` and over a regex pass. `typescript` is already a devDependency, so this adds zero new packages; `ts-morph` is a friendlier wrapper but ~5MB of extra surface for functionality this tool only needs a syntactic parse from. Regex was rejected in the brief itself — path aliases and barrel re-exports aren't tractable with it, which the barrel-file handling below proves out concretely.
+- [x] `ast-parse-tool.ts`: extracts every static import shape (default/named/namespace/side-effect/type-only), dynamic `import()` calls found anywhere in the file (not just top-level — they're expressions, not statements), every export shape (`export const`, `export default`, `export { a as b }`, `export * from`, `export { x } from`, `export * as ns from`), and every top-level declaration (function/class/interface/type/enum/variable), each tagged `isExported`.
+- [x] `import-graph-tool.ts`: builds the forward graph (imports + re-export sources, treated identically — see barrel note below), inverts it to "who imports whom" on demand, caches to `<repoRoot>/.testpilot-cache/import-graph.json` (gitignored in every repo Testpilot analyses, confirmed already covered by this project's own `.gitignore`).
+- [x] Path aliases: reads `tsconfig.json` via `ts.readConfigFile` (tolerates comments/trailing commas, unlike raw `JSON.parse`), resolves wildcard `paths` entries against `baseUrl`. Barrel files: see below. Dynamic `import()`: resolved through the same specifier-resolution path as static imports, when the argument is a string literal.
+- [x] Cache invalidation: **mtime first, content hash second** — matching mtime trusts the cache without reading the file; a changed mtime with an unchanged hash (a fresh checkout touching files without changing them) still reuses the cached parse; only a real content change triggers a re-parse. Verified live: a second `buildImportGraph` call against a warm cache reused every entry (`filesParsed: 0`).
+- [x] Transitive reach: BFS over the reverse graph, capped at `MAX_IMPACT_DEPTH` (6, in `config.ts`). Hitting the cap sets `depthLimitReached: true` so the result is honest about being possibly incomplete, rather than silently truncating.
+- [x] Unit tests (36 total across the two tools) against a hand-built fixture tree at `fixtures/import-graph/` with a known shape: a plain dependency chain, a barrel, a path alias, an external package import, and a dynamic import — each asserted against the exact dependents a human would compute by reading the tree.
 
-**Deliverables:** both tools, an on-disk graph cache, tests.
+**Deliverables:** `ast-parse-tool.ts`, `import-graph-tool.ts`, on-disk graph cache with mtime/hash invalidation, `fixtures/import-graph/*` (11 source files + tsconfig), 36 tests.
 
-**Exit gate:** changing file A correctly lists the files that depend on A, directly and transitively, on a tree where the answer is known by hand.
+**Exit gate:** ✅ Met — literally, not just via unit tests. `src/leaf.ts` is fixture "file A": querying it through the *running server* returned its three direct importers plus `entry.ts` at depth 2 through `mid.ts`, matching the tree's known shape exactly. `ast-parse-tool` was also run against this project's own `config.ts` and correctly extracted all six real exports.
 
-**Watch out for:** barrel files make almost everything look connected. If `index.ts` re-exports the world, the blast radius becomes the whole repo — decide how to handle this before it silently destroys selection quality.
+**Watch out for — handled, not dodged:** the worksheet's warning was that a barrel's fan-out could make the blast radius look like the whole repo. The fix: **a re-export edge is recorded as a normal one-hop dependency** (`index.ts` depends on `a.ts`), never collapsed into "anyone importing the barrel directly imports everything it re-exports." Verified against the fixture: changing `barrel/a.ts` correctly reaches `barrel/index.ts` at depth 1 and `src/barrel-consumer.ts` at depth 2 — not both at depth 1 — with **both entries flagged `throughBarrel: true`** so Phase 3/4 can discount the relationship's strength without losing it entirely.
+
+**Bug found and fixed while building this, in Phase 1's file:** every Phase 1 fixture test started failing at the start of this phase — not from anything touched here, but because `core.autocrlf=true` (the common Git-for-Windows default, active on this machine) had rewritten the fixture files to CRLF on checkout. `parseUnifiedDiff` only split on `\n`, so a header regex anchored with `$` silently stopped matching against a trailing `\r`, and every fixture returned zero files. Real `git diff` output on any `core.autocrlf=true` checkout has the same shape — this wasn't a test-only problem. Fixed in `git-diff-tool.ts` by stripping a trailing `\r` at the single point diffs get split into lines, so every downstream comparison stays CRLF-agnostic.
 
 ---
 

@@ -1,7 +1,9 @@
 import { Mastra } from '@mastra/core/mastra';
 
 import { smokeAgent } from './agents/smoke-agent.ts';
+import { astParseTool } from './tools/ast-parse-tool.ts';
 import { gitDiffTool } from './tools/git-diff-tool.ts';
+import { importGraphTool } from './tools/import-graph-tool.ts';
 
 /**
  * The Mastra instance — the single registry every part of Testpilot is
@@ -22,5 +24,7 @@ export const mastra = new Mastra({
   },
   tools: {
     gitDiffTool,
+    astParseTool,
+    importGraphTool,
   },
 });

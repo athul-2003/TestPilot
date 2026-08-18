@@ -119,7 +119,17 @@ function splitIntoFileBlocks(diff: string): string[][] {
   const blocks: string[][] = [];
   let current: string[] | undefined;
 
-  for (const line of diff.split('\n')) {
+  // Split on \n and drop a trailing \r rather than splitting on /\r?\n/: a
+  // diff can legitimately contain a lone \r as *content* inside an added or
+  // removed line (a file that itself uses CR line endings), and only \n is
+  // guaranteed to be the diff's own line separator. Stripping \r here, once,
+  // means every downstream line comparison — header markers, hunk prefixes,
+  // symbol regexes — never has to think about it again. This matters in
+  // practice, not just in theory: on a Windows checkout with the common
+  // `core.autocrlf=true` setting, `git diff` output is CRLF-terminated by
+  // default.
+  for (const rawLine of diff.split('\n')) {
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
     if (FILE_HEADER_RE.test(line)) {
       current = [line];
       blocks.push(current);
