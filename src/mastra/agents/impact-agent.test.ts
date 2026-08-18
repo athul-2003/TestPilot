@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { buildPromptPayload, selectTests, type StructuredGenerator, type TestSelectionResult } from './impact-agent.ts';
+import { buildPromptPayload, selectTests, testSelectionOutputSchema, type TestSelectionResult } from './impact-agent.ts';
+import type { StructuredGenerator } from './structured-generator.ts';
 
 const fixtureRoot = fileURLToPath(new URL('../../../fixtures/impact-agent/', import.meta.url));
 const diffsDir = fileURLToPath(new URL('../../../fixtures/impact-agent/diffs/', import.meta.url));
@@ -18,7 +19,7 @@ function loadDiff(name: string): string {
 // network connection and an API key just to run the suite; verifying the
 // actual agent's judgement is a manual step during phase sign-off, not
 // something the automated test suite should be doing on every run.
-function fakeGenerator(object: TestSelectionResult): StructuredGenerator {
+function fakeGenerator(object: TestSelectionResult): StructuredGenerator<typeof testSelectionOutputSchema> {
   return {
     generate: async () => ({ object, usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 } }),
   };

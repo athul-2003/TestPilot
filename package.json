@@ -31,7 +31,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@libsql/client": "^0.17.4",
     "@mastra/core": "1.59.0",
+    "@mastra/libsql": "^1.20.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

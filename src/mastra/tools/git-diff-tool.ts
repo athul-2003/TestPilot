@@ -332,6 +332,17 @@ export function parseUnifiedDiff(diff: string, maxChars: number = MAX_DIFF_CHARS
 }
 
 /**
+ * Reconstructs a new file's full source text from its diff. Valid only for
+ * `changeType: 'added'` files — a new file's diff has no context lines and
+ * no removed lines, so its hunks' added lines, in order, *are* the entire
+ * file. Used by Phase 5's flaky-agent to assess a brand-new test's source
+ * without a separate disk read: the diff already contains all of it.
+ */
+export function reconstructAddedFileSource(file: FileChange): string {
+  return file.hunks.flatMap((h) => h.addedLines).join('\n');
+}
+
+/**
  * The Mastra tool wrapping the parser above.
  *
  * A tool's `execute` receives the already-validated input as its first

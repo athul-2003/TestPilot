@@ -1,12 +1,14 @@
 import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 
+import { flakyAgent, computeFlakyBudget } from '../agents/flaky-agent.ts';
 import { impactAgent, correlateTestsWithImpact, runSelection, selectedTestSchema, type PromptPayload } from '../agents/impact-agent.ts';
 import { ASSUMED_MINUTES_PER_TEST, CONFIDENCE_THRESHOLD, MAX_IMPACT_DEPTH } from '../config.ts';
-import { ciAnnotateInputSchema, renderReport } from '../tools/ci-annotate-tool.ts';
-import { gitDiffOutputSchema, parseUnifiedDiff } from '../tools/git-diff-tool.ts';
+import { ciAnnotateInputSchema, flakyBudgetEntrySchema, renderReport } from '../tools/ci-annotate-tool.ts';
+import { gitDiffOutputSchema, parseUnifiedDiff, reconstructAddedFileSource } from '../tools/git-diff-tool.ts';
 import { buildImportGraph, computeImpactedFiles, importGraphOutputSchema } from '../tools/import-graph-tool.ts';
 import { buildTestInventory, testFileSchema } from '../tools/test-inventory-tool.ts';
+import { getTestFailureRate } from '../tools/test-history-tool.ts';
 import { computeConfidence, confidenceSignalsSchema } from './confidence.ts';
 
 /**
@@ -47,6 +49,8 @@ const finalReportSchema = z.object({
   confidence: z.number(),
   estimatedMinutesSaved: z.number(),
   fellBackToRunAll: z.boolean(),
+  /** testPath -> repeat-run budget (decision D4), for every new or historically-unstable test that got one. */
+  flakyBudget: z.record(z.string(), z.number()),
   report: z.string().describe('The rendered Markdown PR comment.'),
 });
 
@@ -129,7 +133,62 @@ const selectTestsStep = createStep({
   },
 });
 
-// --- Step 4: score confidence (D3) --------------------------------------
+// --- Step 4: estimate flaky budgets (D4) --------------------------------
+//
+// Runs before confidence scoring, matching the original pipeline sketch —
+// its output has to be available to *either* branch of the confidence gate
+// below, since a low-confidence run still benefits from knowing which of
+// the tests it's about to run (everything) are new or historically shaky.
+
+const estimateFlakyOutputSchema = z.object({
+  flakyBudgets: z.array(flakyBudgetEntrySchema),
+});
+
+const estimateFlakyStep = createStep({
+  id: 'estimate-flaky',
+  inputSchema: selectTestsOutputSchema,
+  outputSchema: estimateFlakyOutputSchema,
+  execute: async ({ inputData, getInitData, getStepResult }) => {
+    const init = getInitData<WorkflowInput>();
+    const diffResult = getStepResult(parseDiffStep);
+
+    const addedTsFilesByPath = new Map(
+      diffResult.files.filter((f) => f.changeType === 'added' && f.isTypeScript).map((f) => [f.path, f]),
+    );
+    const runnablePaths = new Set(inputData.selections.filter((s) => s.bucket !== 'skip').map((s) => s.path));
+    const candidates = inputData.testInventory.filter((t) => runnablePaths.has(t.path));
+
+    const budgets = await Promise.all(
+      candidates.map(async (test) => {
+        const addedFile = addedTsFilesByPath.get(test.path);
+        const isNew = addedFile !== undefined;
+
+        if (!isNew) {
+          // Most tests in most diffs are neither new nor unstable — this
+          // cheap history check is what keeps a large, healthy test suite
+          // from paying for a flaky-agent call on every single test it runs.
+          const stats = await getTestFailureRate(init.repoRoot, test.path);
+          const isUnstable = stats !== undefined && stats.failCount > 0 && stats.failCount < stats.totalRuns;
+          if (!isUnstable) return undefined;
+        }
+
+        const sourceText = addedFile ? reconstructAddedFileSource(addedFile) : undefined;
+        const result = await computeFlakyBudget(init.repoRoot, test.path, sourceText, flakyAgent);
+        return {
+          testPath: result.testPath,
+          budget: result.budget,
+          priorSource: result.priorSource,
+          riskLevel: result.riskLevel,
+          structuralFlags: result.structuralFlags,
+        };
+      }),
+    );
+
+    return { flakyBudgets: budgets.filter((b) => b !== undefined) };
+  },
+});
+
+// --- Step 5: score confidence (D3) --------------------------------------
 
 const scoreConfidenceOutputSchema = z.object({
   confidence: z.number(),
@@ -138,17 +197,18 @@ const scoreConfidenceOutputSchema = z.object({
 
 const scoreConfidenceStep = createStep({
   id: 'score-confidence',
-  inputSchema: selectTestsOutputSchema,
+  inputSchema: estimateFlakyOutputSchema,
   outputSchema: scoreConfidenceOutputSchema,
-  execute: async ({ inputData, getStepResult }) => {
+  execute: async ({ getStepResult }) => {
     const diffResult = getStepResult(parseDiffStep);
     const impactResult = getStepResult(buildImpactStep);
+    const selectResult = getStepResult(selectTestsStep);
 
     return computeConfidence({
       diff: diffResult,
       impacted: impactResult.impacted,
-      inventorySize: inputData.testInventory.length,
-      selectionWarningCount: inputData.warnings.length,
+      inventorySize: selectResult.testInventory.length,
+      selectionWarningCount: selectResult.warnings.length,
     });
   },
 });
@@ -161,7 +221,9 @@ const runAllStep = createStep({
   outputSchema: finalReportSchema,
   execute: async ({ inputData, getStepResult }) => {
     const selectResult = getStepResult(selectTestsStep);
+    const flakyResult = getStepResult(estimateFlakyStep);
     const allPaths = selectResult.testInventory.map((t) => t.path);
+    const flakyBudget = Object.fromEntries(flakyResult.flakyBudgets.map((b) => [b.testPath, b.budget]));
 
     const report = renderReport({
       confidence: inputData.confidence,
@@ -170,6 +232,7 @@ const runAllStep = createStep({
       estimatedMinutesSaved: 0,
       selections: [],
       totalTestCount: allPaths.length,
+      flakyBudgets: flakyResult.flakyBudgets,
     });
 
     return {
@@ -179,6 +242,7 @@ const runAllStep = createStep({
       confidence: inputData.confidence,
       estimatedMinutesSaved: 0,
       fellBackToRunAll: true,
+      flakyBudget,
       report,
     };
   },
@@ -190,7 +254,9 @@ const buildReportStep = createStep({
   outputSchema: finalReportSchema,
   execute: async ({ inputData, getStepResult }) => {
     const selectResult = getStepResult(selectTestsStep);
+    const flakyResult = getStepResult(estimateFlakyStep);
     const testTypeByPath = new Map(selectResult.testInventory.map((t) => [t.path, t.testType]));
+    const flakyBudget = Object.fromEntries(flakyResult.flakyBudgets.map((b) => [b.testPath, b.budget]));
 
     const mustRun = selectResult.selections.filter((s) => s.bucket === 'must-run').map((s) => s.path);
     const shouldRun = selectResult.selections.filter((s) => s.bucket === 'should-run').map((s) => s.path);
@@ -208,9 +274,19 @@ const buildReportStep = createStep({
       estimatedMinutesSaved,
       selections: selectResult.selections,
       totalTestCount: selectResult.testInventory.length,
+      flakyBudgets: flakyResult.flakyBudgets,
     });
 
-    return { mustRun, shouldRun, skip, confidence: inputData.confidence, estimatedMinutesSaved, fellBackToRunAll: false, report };
+    return {
+      mustRun,
+      shouldRun,
+      skip,
+      confidence: inputData.confidence,
+      estimatedMinutesSaved,
+      fellBackToRunAll: false,
+      flakyBudget,
+      report,
+    };
   },
 });
 
@@ -246,6 +322,7 @@ export const triageWorkflow = createWorkflow({
   .then(parseDiffStep)
   .then(buildImpactStep)
   .then(selectTestsStep)
+  .then(estimateFlakyStep)
   .then(scoreConfidenceStep)
   .branch([
     [async ({ inputData }) => inputData.confidence < CONFIDENCE_THRESHOLD, runAllStep],

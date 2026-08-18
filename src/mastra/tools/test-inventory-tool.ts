@@ -5,7 +5,7 @@ import { createTool } from '@mastra/core/tools';
 import ts from 'typescript';
 import { z } from 'zod';
 
-import { IMPORT_GRAPH_CACHE_DIRNAME } from '../config.ts';
+import { TESTPILOT_CACHE_DIRNAME } from '../config.ts';
 import { parseTypeScriptFile } from './ast-parse-tool.ts';
 import { walkTypeScriptFiles } from './import-graph-tool.ts';
 
@@ -152,7 +152,7 @@ function extractTestTitles(sourceText: string, filePath: string): string[] {
  * directly, the same pattern used throughout this codebase.
  */
 export function buildTestInventory(repoRoot: string): TestInventoryResult {
-  const allFiles = walkTypeScriptFiles(repoRoot, IMPORT_GRAPH_CACHE_DIRNAME);
+  const allFiles = walkTypeScriptFiles(repoRoot, TESTPILOT_CACHE_DIRNAME);
   const testFiles = allFiles.filter((f) => TEST_FILE_RE.test(f));
 
   const tests: TestFileInfo[] = testFiles.map((relFile) => {

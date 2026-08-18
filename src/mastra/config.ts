@@ -71,10 +71,39 @@ export const MAX_IMPACT_DEPTH = 6;
 
 /**
  * Cache directory name, created inside whichever repo Testpilot is analysing
- * — not this one. Must stay gitignored in every repo Testpilot runs against;
- * this project's own .gitignore already covers it.
+ * — not this one. Holds the import-graph cache (Phase 2) and the flaky-test
+ * history database (Phase 5) — everything that's per-repo, disposable, and
+ * must stay gitignored in every repo Testpilot runs against. This project's
+ * own .gitignore already covers it.
  */
-export const IMPORT_GRAPH_CACHE_DIRNAME = '.testpilot-cache';
+export const TESTPILOT_CACHE_DIRNAME = '.testpilot-cache';
+
+/** Filename of the flaky-test history database, inside {@link TESTPILOT_CACHE_DIRNAME}. */
+export const TEST_HISTORY_DB_FILENAME = 'test-history.db';
+
+/**
+ * The confidence level a repeat-run budget (decision **D4**) is solved for:
+ * how sure we want to be, after seeing nothing but green runs, that we
+ * weren't just lucky. Higher means more repeats required to trust a result,
+ * for the same observed instability.
+ */
+export const FLAKY_TARGET_CONFIDENCE = 0.95;
+
+/**
+ * Hard ceiling on repeat-run budgets, regardless of how unstable a test's
+ * history looks. Bounds the CI cost a single unreliable test can impose —
+ * past this many repeats, the answer is "fix the test," not "run it more."
+ */
+export const FLAKY_REPEAT_CAP = 10;
+
+/**
+ * Fallback failure-rate prior for a test with no history of its own, in a
+ * repo with no recorded history at all — the "we genuinely know nothing yet"
+ * case. A modest, deliberately non-zero starting assumption: treating a
+ * total unknown as "0% chance of failure" would hand every brand-new test
+ * the minimum possible repeat budget, which is the opposite of cautious.
+ */
+export const DEFAULT_FLAKE_PRIOR = 0.05;
 
 /**
  * Assumed CI minutes per test, by type, used only to estimate minutes saved

@@ -5,6 +5,7 @@ import { MAX_IMPACT_DEPTH, MODEL } from '../config.ts';
 import { parseUnifiedDiff, type FileChange } from '../tools/git-diff-tool.ts';
 import { buildImportGraph, computeImpactedFiles, type Dependent, type ImpactedEntry } from '../tools/import-graph-tool.ts';
 import { buildTestInventory, type TestFileInfo } from '../tools/test-inventory-tool.ts';
+import type { StructuredGenerator } from './structured-generator.ts';
 
 /**
  * The first **agent** in this codebase, as opposed to a tool. A tool is a
@@ -161,19 +162,6 @@ export function buildPromptPayload(repoRoot: string, diff: string, maxDepth: num
   };
 }
 
-/** The minimum shape `selectTests` needs from an agent — narrower than the
- * real `Agent` class so tests can pass a stub that never touches the
- * network, without needing to construct a real Mastra Agent to satisfy it. */
-export interface StructuredGenerator {
-  generate(
-    prompt: string,
-    options: { structuredOutput: { schema: typeof testSelectionOutputSchema } },
-  ): Promise<{
-    object: TestSelectionResult;
-    usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
-  }>;
-}
-
 export interface SelectTestsResult {
   selections: SelectedTest[];
   /** Inventory paths the model's response didn't cover, or hallucinated paths not in the inventory. */
@@ -191,7 +179,7 @@ export interface SelectTestsResult {
  */
 export async function runSelection(
   payload: PromptPayload,
-  generator: StructuredGenerator = impactAgent,
+  generator: StructuredGenerator<typeof testSelectionOutputSchema> = impactAgent,
 ): Promise<SelectTestsResult> {
   const prompt = `Classify every test below for this change. Respond with exactly one entry per test in "tests".
 
@@ -225,7 +213,7 @@ ${JSON.stringify(payload, null, 2)}`;
  */
 export async function selectTests(
   input: { repoRoot: string; diff: string; maxDepth?: number },
-  generator: StructuredGenerator = impactAgent,
+  generator: StructuredGenerator<typeof testSelectionOutputSchema> = impactAgent,
 ): Promise<SelectTestsResult> {
   const payload = buildPromptPayload(input.repoRoot, input.diff, input.maxDepth ?? MAX_IMPACT_DEPTH);
   return runSelection(payload, generator);

@@ -6,7 +6,7 @@ import { createTool } from '@mastra/core/tools';
 import ts from 'typescript';
 import { z } from 'zod';
 
-import { IMPORT_GRAPH_CACHE_DIRNAME, MAX_IMPACT_DEPTH } from '../config.ts';
+import { TESTPILOT_CACHE_DIRNAME, MAX_IMPACT_DEPTH } from '../config.ts';
 import { parseTypeScriptFile } from './ast-parse-tool.ts';
 
 /**
@@ -298,11 +298,11 @@ export interface ImportGraph {
  * mtimes without touching content.
  */
 export function buildImportGraph(repoRoot: string, cacheDir?: string): ImportGraph {
-  const cachePath = path.join(cacheDir ?? path.join(repoRoot, IMPORT_GRAPH_CACHE_DIRNAME), 'import-graph.json');
+  const cachePath = path.join(cacheDir ?? path.join(repoRoot, TESTPILOT_CACHE_DIRNAME), 'import-graph.json');
   const cache = loadCache(cachePath);
   const alias = loadTsconfigAliases(repoRoot);
 
-  const files = walkTypeScriptFiles(repoRoot, IMPORT_GRAPH_CACHE_DIRNAME);
+  const files = walkTypeScriptFiles(repoRoot, TESTPILOT_CACHE_DIRNAME);
   const existingFiles = new Set(files);
 
   const forward = new Map<string, string[]>();
