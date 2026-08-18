@@ -1,0 +1,9 @@
+diff --git a/src/phantom.ts b/src/phantom.ts
+index 1234567..89abcde 100644
+--- a/src/phantom.ts
++++ b/src/phantom.ts
+@@ -1,3 +1,3 @@
+ export function phantom(): string {
+-  return 'old';
++  return 'new';
+ }

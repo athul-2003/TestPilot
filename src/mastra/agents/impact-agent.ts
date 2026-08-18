@@ -2,9 +2,9 @@ import { Agent } from '@mastra/core/agent';
 import { z } from 'zod';
 
 import { MAX_IMPACT_DEPTH, MODEL } from '../config.ts';
-import { parseUnifiedDiff } from '../tools/git-diff-tool.ts';
-import { buildImportGraph, computeImpactedFiles, type Dependent } from '../tools/import-graph-tool.ts';
-import { buildTestInventory } from '../tools/test-inventory-tool.ts';
+import { parseUnifiedDiff, type FileChange } from '../tools/git-diff-tool.ts';
+import { buildImportGraph, computeImpactedFiles, type Dependent, type ImpactedEntry } from '../tools/import-graph-tool.ts';
+import { buildTestInventory, type TestFileInfo } from '../tools/test-inventory-tool.ts';
 
 /**
  * The first **agent** in this codebase, as opposed to a tool. A tool is a
@@ -16,9 +16,9 @@ import { buildTestInventory } from '../tools/test-inventory-tool.ts';
  * answer with a written-down rationale instead of a black-box guess.
  */
 
-const bucketSchema = z.enum(['must-run', 'should-run', 'skip']);
+export const bucketSchema = z.enum(['must-run', 'should-run', 'skip']);
 
-const selectedTestSchema = z.object({
+export const selectedTestSchema = z.object({
   path: z.string(),
   bucket: bucketSchema,
   rationale: z
@@ -85,32 +85,31 @@ interface PromptTest {
   reachableFrom: ReachEntry[];
 }
 
-interface PromptPayload {
+export interface PromptPayload {
   changedFiles: Array<{ path: string; changeType: string; isTypeScript: boolean; candidateSymbols: string[] }>;
   impact: Array<{ changedFile: string; dependents: Dependent[]; depthLimitReached: boolean }>;
   tests: PromptTest[];
 }
 
 /**
- * Combines the outputs of Phases 1 and 2 with this phase's test inventory
- * into one payload the agent can reason over — the "diff summary, reverse-
- * dependency reach, and test inventory" the agent's prompt needs. This is
- * the same correlation Phase 4's workflow will eventually run as a
- * dedicated step; it lives here for now because there's nowhere else for it
- * to live before that workflow exists, and the selection logic belongs
- * beside the agent it feeds regardless of which one calls the other later.
+ * Correlates changed files, their reachability, and the test inventory into
+ * the per-test view the agent's prompt needs: is this test the thing that
+ * was edited, and — separately — what does the import graph say reaches it,
+ * from where, at what depth, through how weak a chain.
+ *
+ * Kept separate from {@link buildPromptPayload} so a caller that already has
+ * a diff result and an impact result in hand — Phase 4's workflow step,
+ * specifically — can correlate them directly instead of paying to
+ * re-parse the diff and rebuild the import graph a second time.
  */
-export function buildPromptPayload(repoRoot: string, diff: string, maxDepth: number): PromptPayload {
-  const diffResult = parseUnifiedDiff(diff);
-  const changedTsFiles = diffResult.files.filter((f) => f.isTypeScript && !f.isBinary).map((f) => f.path);
+export function correlateTestsWithImpact(
+  diffFiles: FileChange[],
+  impacted: ImpactedEntry[],
+  inventory: TestFileInfo[],
+): PromptTest[] {
+  const changedPaths = new Set(diffFiles.map((f) => f.path));
 
-  const graph = buildImportGraph(repoRoot);
-  const impacted = changedTsFiles.length > 0 ? computeImpactedFiles(graph, changedTsFiles, maxDepth) : [];
-
-  const inventory = buildTestInventory(repoRoot);
-  const changedPaths = new Set(diffResult.files.map((f) => f.path));
-
-  const tests: PromptTest[] = inventory.tests.map((test) => {
+  return inventory.map((test) => {
     const reachableFrom: ReachEntry[] = [];
     for (const entry of impacted) {
       const hit = entry.dependents.find((d) => d.file === test.path);
@@ -124,6 +123,27 @@ export function buildPromptPayload(repoRoot: string, diff: string, maxDepth: num
       reachableFrom,
     };
   });
+}
+
+/**
+ * Combines the outputs of Phases 1 and 2 with this phase's test inventory
+ * into one payload the agent can reason over — the "diff summary, reverse-
+ * dependency reach, and test inventory" the agent's prompt needs.
+ *
+ * A thin, from-scratch wrapper around {@link correlateTestsWithImpact} for
+ * standalone use (and for the existing tests in this file) — it re-derives
+ * everything from a raw diff string and repo root. Phase 4's workflow step
+ * calls `correlateTestsWithImpact` directly instead, reusing the diff and
+ * impact results its earlier steps already computed.
+ */
+export function buildPromptPayload(repoRoot: string, diff: string, maxDepth: number): PromptPayload {
+  const diffResult = parseUnifiedDiff(diff);
+  const changedTsFiles = diffResult.files.filter((f) => f.isTypeScript && !f.isBinary).map((f) => f.path);
+
+  const graph = buildImportGraph(repoRoot);
+  const impacted = changedTsFiles.length > 0 ? computeImpactedFiles(graph, changedTsFiles, maxDepth) : [];
+
+  const inventory = buildTestInventory(repoRoot);
 
   return {
     changedFiles: diffResult.files.map((f) => ({
@@ -137,7 +157,7 @@ export function buildPromptPayload(repoRoot: string, diff: string, maxDepth: num
       dependents: entry.dependents,
       depthLimitReached: entry.depthLimitReached,
     })),
-    tests,
+    tests: correlateTestsWithImpact(diffResult.files, impacted, inventory.tests),
   };
 }
 
@@ -163,16 +183,16 @@ export interface SelectTestsResult {
 }
 
 /**
- * Runs the full Phase 3 pipeline: parse the diff, compute impact reach,
- * build the test inventory, and ask the agent to classify every test — the
- * thing "a sample change" exercises for this phase's exit gate.
+ * Sends an already-built payload to the agent and validates the response
+ * covers exactly the inventory it was given — this is the half of test
+ * selection that's actually a model call, separated from payload assembly
+ * so a caller that already has a payload (Phase 4's workflow step) can skip
+ * straight to it.
  */
-export async function selectTests(
-  input: { repoRoot: string; diff: string; maxDepth?: number },
+export async function runSelection(
+  payload: PromptPayload,
   generator: StructuredGenerator = impactAgent,
 ): Promise<SelectTestsResult> {
-  const payload = buildPromptPayload(input.repoRoot, input.diff, input.maxDepth ?? MAX_IMPACT_DEPTH);
-
   const prompt = `Classify every test below for this change. Respond with exactly one entry per test in "tests".
 
 ${JSON.stringify(payload, null, 2)}`;
@@ -193,4 +213,20 @@ ${JSON.stringify(payload, null, 2)}`;
   }
 
   return { selections: response.object.selections, warnings, usage: response.usage ?? {}, latencyMs };
+}
+
+/**
+ * Runs the full Phase 3 pipeline from scratch: parse the diff, compute
+ * impact reach, build the test inventory, and ask the agent to classify
+ * every test. A thin wrapper combining {@link buildPromptPayload} and
+ * {@link runSelection} — kept for standalone use and for the existing tests
+ * in this file; Phase 4's workflow step calls the two halves separately so
+ * it can reuse work its earlier steps already did.
+ */
+export async function selectTests(
+  input: { repoRoot: string; diff: string; maxDepth?: number },
+  generator: StructuredGenerator = impactAgent,
+): Promise<SelectTestsResult> {
+  const payload = buildPromptPayload(input.repoRoot, input.diff, input.maxDepth ?? MAX_IMPACT_DEPTH);
+  return runSelection(payload, generator);
 }
