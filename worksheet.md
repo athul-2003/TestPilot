@@ -71,8 +71,8 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Merged to `main`
 - [ ] Define the Zod `inputSchema` (unified diff text) and `outputSchema` (files with path, change type, added/removed line ranges, touched symbol names).
 - [ ] Implement unified-diff parsing: file headers, hunk headers, added/removed lines.
 - [ ] Handle the awkward cases explicitly: renames, deletions, binary files, new files, and diffs with no TS content.
-- [ ] **Decide and document the diff-acquisition contract** (see Open decisions D1) — even if CI wiring comes later, the tool's input shape depends on it.
-- [ ] Add a truncation strategy with a documented ceiling for very large diffs.
+- [ ] Implement the diff-acquisition contract from **D1**: `git diff` against the merge base (`git merge-base origin/main HEAD`), same string shape whether run locally, in Studio, or from the Action.
+- [ ] Enforce the **~40k character** ceiling from D1 — truncate per-file, note it in the output, and signal it so Phase 4 can drop confidence accordingly.
 - [ ] Test in Studio by pasting a small sample diff; save 3–4 sample diffs under `fixtures/diffs/` for reuse.
 - [ ] Unit tests (Vitest) over the saved fixture diffs.
 
@@ -116,10 +116,10 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Merged to `main`
 **Steps**
 - [ ] `test-inventory-tool.ts`: discover `*.test.ts` / `*.spec.ts`, tag each as unit / integration / e2e (heuristics documented).
 - [ ] Define the selection output schema in Zod: per-test `{ path, bucket, rationale, confidence }`.
-- [ ] **Define what `should-run` operationally means** (see Open decisions D2) before writing the prompt — the bucket is meaningless until this is settled.
+- [ ] Encode **D2** in the prompt and the report: `must-run` and `should-run` both execute, `skip` is the only bucket that saves minutes. `should-run` is a confidence label, so its rationale must read as "ran this because it plausibly touches X".
 - [ ] Write `impact-agent.ts` with a prompt that receives the diff summary, the reverse-dependency reach, and the test inventory — and must justify every `skip`.
 - [ ] Use `structuredOutput` so the result is typed, not parsed from prose.
-- [ ] Log token usage and latency per run (needed for the cost budget, D5).
+- [ ] Log tokens in/out and wall-clock per run, against the **D5** budget of under $0.05 and under 60s per PR.
 - [ ] Run against the Phase 1 fixture diffs; eyeball the rationales for sanity.
 
 **Deliverables:** test inventory tool, impact agent, typed selection output, recorded token/latency numbers.
@@ -138,8 +138,8 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Merged to `main`
 
 **Steps**
 - [ ] `workflows/triage-workflow.ts`: `parseDiff → buildImpact → selectTests → scoreConfidence → branch`.
-- [ ] **Define the confidence formula** (see Open decisions D3) — not an LLM-invented number. Base it on observable signals: graph reach certainty, share of files parsed successfully, diff size, unmatched symbols, test-inventory coverage.
-- [ ] Make the threshold configurable (`TESTPILOT_CONFIDENCE_THRESHOLD`, default 0.7) and document why the default is what it is.
+- [ ] Implement the **D3** confidence formula — a weighted score over observable signals (share of changed files AST-parsed, share of symbols resolved in the graph, graph reach certainty, diff size vs the truncation ceiling, test-inventory completeness). Never a number the LLM invents.
+- [ ] Make the threshold configurable via `TESTPILOT_CONFIDENCE_THRESHOLD`, default `0.7` — and label it in the code as a starting value pending Phase 6 calibration.
 - [ ] `.branch([[low confidence → runAllStep], [else → reportStep]])`.
 - [ ] `ci-annotate-tool.ts`: render a clear Markdown PR comment — what's running, what's skipped and why, estimated minutes saved, confidence, and an explicit "fell back to run-all" state.
 - [ ] Define the estimated-minutes-saved calculation and state its assumptions in the comment itself.
@@ -163,7 +163,7 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Merged to `main`
 **Steps**
 - [ ] Configure `LibSQLStore({ id: 'testpilot-storage', url: ... })` on the Mastra instance; add the DB file to `.gitignore`.
 - [ ] `test-history-tool.ts`: record and read per-test pass/fail/flake outcomes across runs.
-- [ ] **Define the run-budget formula** (see Open decisions D4) — derive repeat-runs from observed flake rate and a target confidence level, and let the agent supply the *prior* for brand-new tests only.
+- [ ] Implement the **D4** budget formula: `n = ceil(log(1 - c) / log(p))` at `c = 0.95`, capped at 10 repeats. New tests seed `p` from the repo's overall flake rate; structural flags raise the prior but never set the count directly.
 - [ ] `flaky-agent.ts`: flag flaky-by-construction patterns from source — timing/sleep, network calls, shared mutable state, order dependence, randomness, date/time.
 - [ ] Merge statistical and structural signals into one budget per test, with a cap.
 - [ ] Surface flaky risks in the Phase 4 PR comment.
@@ -204,8 +204,9 @@ Legend: ⬜ Not started · 🟡 In progress · ✅ Merged to `main`
 **Steps**
 - [ ] `README.md`: the positioning line verbatim, the problem, a quickstart, the metrics table from Phase 6, a demo GIF, and an honest limitations section.
 - [ ] `.github/workflows/testpilot-example.yml`: a copy-pasteable GitHub Actions job, with the minimum `GITHUB_TOKEN` permissions spelled out.
-- [ ] Decide and implement the distribution form (see Open decisions D6): npm package, composite GitHub Action, or both.
-- [ ] Document the **privacy posture** honestly — what is sent to OpenAI, and how to self-host a model so nothing leaves your infra.
+- [ ] Ship both distribution forms per **D6**: an npm package holding the engine, and a thin composite GitHub Action that wraps it with no logic of its own.
+- [ ] Document the **privacy posture** honestly — what is sent to OpenAI by default, and how to self-host a model so nothing leaves your infra. Do not let the positioning line imply the default is local.
+- [ ] Publish the **D5** cost and latency numbers next to the minutes-saved claim.
 - [ ] `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue and PR templates.
 - [ ] Record a 60–90s demo: Studio handling a real PR and explaining its selection.
 - [ ] Tag `v0.1.0`.
@@ -228,17 +229,24 @@ Ordered easiest → highest impact, all using the same positioning line.
 
 ---
 
-## Open decisions (close these before the phase that needs them)
+## Decisions (settled 2026-08-18)
 
-| # | Decision | Needed by | Default if undecided |
+These were the gaps the brief left open. All are now decided, so no phase is blocked waiting on an answer. Revisit one only with a stated reason — and update this table when you do.
+
+| # | Question | Decision | Implemented in |
 |---|---|---|---|
-| **D1** | Where the diff comes from: `git diff` against the merge base, or the GitHub API? Token ceiling for large diffs? | Phase 1 | `git diff merge-base` locally; GitHub API in the Action |
-| **D2** | What `should-run` operationally *means* — does CI run it or not? | Phase 3 | Runs by default; `skip` is the only bucket that saves minutes |
-| **D3** | The confidence formula, and justification for the 0.7 threshold | Phase 4 | Weighted signal formula, threshold configurable, 0.7 default calibrated in Phase 6 |
-| **D4** | The flaky run-budget formula | Phase 5 | Repeats needed for 95% confidence given observed flake rate, capped at 10 |
-| **D5** | Cost & latency budget per PR run | Phase 3 (measure), Phase 6 (report) | Measure from Phase 3; publish alongside minutes-saved |
-| **D6** | Distribution: npm package, GitHub Action, or both | Phase 7 | Both — npm for the engine, a composite Action wrapping it |
-| **D7** | Whether the missing `MASTRA_KNOWLEDGE.md` / `TYPESCRIPT_FOR_MASTRA.md` companions get written | Any time | Skip them; use live Mastra docs and explain concepts inline |
+| **D1** | Where does the diff come from? | `git diff` against the **merge base** (`git merge-base origin/main HEAD`) — it works locally, in Studio, and in any CI provider, with no API dependency. The GitHub Action passes the same string in. Hard ceiling of **~40k diff characters**; beyond that, truncate per-file with a notice in the report and drop confidence, rather than silently sending a partial picture. | Phase 1 |
+| **D2** | What does `should-run` operationally *mean*? | **It runs.** CI has only two behaviours — execute or don't — so `must-run` and `should-run` both execute and `skip` is the only bucket that saves minutes. `should-run` is a *confidence label* surfaced in the PR comment ("ran this because it plausibly touches X"), not a third behaviour. Rejected: making it not run (that is `skip` with softer wording, and every entry becomes a chance to miss a regression), and making it conditional on a time budget (needs run history to calibrate — revisit as a v2 feature). | Phase 3 |
+| **D3** | The confidence formula, and why 0.7? | A **weighted score over observable signals**, never a number the LLM invents: share of changed files successfully AST-parsed, share of changed symbols resolved in the import graph, graph reach certainty (unresolved dynamic imports and barrel-file fan-out reduce it), diff size against the truncation ceiling, and test-inventory completeness. Threshold is configurable via `TESTPILOT_CONFIDENCE_THRESHOLD`, defaulting to **0.7 as a starting value only** — Phase 6 calibrates it against the fixture repo and the README publishes the calibrated number with its evidence. | Phase 4, calibrated Phase 6 |
+| **D4** | The flaky run-budget formula | **Statistics decide the count; the LLM only detects patterns.** Given an observed per-run failure probability `p` for a flaky test, the repeats needed for a green result to mean something at confidence `c` is `n = ceil(log(1 - c) / log(p))`, with `c = 0.95` and `n` capped at **10** to bound CI cost. New tests with no history get a prior seeded from the repo's overall flake rate, tightened as runs accumulate. The `flaky-agent` contributes *structural* flags (timing, network, shared state, ordering, randomness, date/time), which raise the prior — they never produce the number directly. | Phase 5 |
+| **D5** | Cost & latency budget per PR run | **Measured from Phase 3, published in Phase 6, enforced from Phase 7.** Log tokens in/out and wall-clock per workflow run. Target: **under $0.05 and under 60s per PR** on a typical diff. Report it next to minutes-saved — a tool that sells CI savings must show its own cost, or the savings claim is unverifiable. | Phase 3 → 6 → 7 |
+| **D6** | Distribution: npm, GitHub Action, or both? | **Both.** An npm package carries the engine and stays usable locally, in Studio, and in any CI provider; a thin composite GitHub Action wraps it for drop-in use. The Action is a wrapper only — no logic lives there, so the two can never drift. | Phase 7 |
+| **D7** | Write the missing `MASTRA_KNOWLEDGE.md` / `TYPESCRIPT_FOR_MASTRA.md` companions? | **No.** The brief references both but neither exists. Rather than write docs that go stale as Mastra evolves, verify against the live docs at the start of each phase and explain TypeScript concepts inline as they first appear. The quick reference at the foot of this file is the durable summary, and it carries the date it was verified. | Ongoing |
+
+### Consequences worth remembering
+
+- **Privacy must be stated honestly.** Diffs and source metadata go to OpenAI by default. "Nothing leaves your infra" is true *only* with a self-hosted model. The README says so plainly and documents how to self-host — the positioning line stays credible precisely because it doesn't overclaim.
+- **D2 makes `skip` the whole product.** Every CI minute saved comes from that one bucket, so every `skip` rationale is load-bearing and the regression-guard eval in Phase 6 is the only thing standing between the tool and lost trust.
 
 ---
 
