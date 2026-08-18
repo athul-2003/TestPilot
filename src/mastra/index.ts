@@ -1,6 +1,7 @@
 import { Mastra } from '@mastra/core/mastra';
 
 import { smokeAgent } from './agents/smoke-agent.ts';
+import { gitDiffTool } from './tools/git-diff-tool.ts';
 
 /**
  * The Mastra instance — the single registry every part of Testpilot is
@@ -11,12 +12,15 @@ import { smokeAgent } from './agents/smoke-agent.ts';
  * `mastra.getWorkflow()`. Those lookups carry shared services (storage, logging,
  * telemetry) with them, which a bare import does not.
  *
- * The key an agent is registered under is the name Studio shows and the name
- * `getAgentById()` expects — so it is part of the public surface, not an
+ * The key an agent or tool is registered under is the name Studio shows and
+ * the name the API/CLI expects — so it is part of the public surface, not an
  * internal detail.
  */
 export const mastra = new Mastra({
   agents: {
     smokeAgent,
+  },
+  tools: {
+    gitDiffTool,
   },
 });

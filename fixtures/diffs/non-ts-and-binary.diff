@@ -1,0 +1,17 @@
+diff --git a/package.json b/package.json
+index 4b5c6d7..8e9f0a1 100644
+--- a/package.json
++++ b/package.json
+@@ -2,7 +2,7 @@
+   "name": "example",
+   "version": "1.0.0",
+   "dependencies": {
+-    "lodash": "^4.17.20",
++    "lodash": "^4.17.21",
+     "zod": "^3.22.0"
+   }
+ }
+diff --git a/assets/logo.png b/assets/logo.png
+new file mode 100644
+index 0000000..abc1234
+Binary files /dev/null and b/assets/logo.png differ
