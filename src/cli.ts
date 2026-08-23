@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { pathToFileURL } from 'node:url';
 
 import { triageWorkflow } from './mastra/workflows/triage-workflow.ts';
 
@@ -40,7 +41,7 @@ Options:
 `);
 }
 
-function parseArgs(argv: string[]): CliOptions | 'help' {
+export function parseArgs(argv: string[]): CliOptions | 'help' {
   const options: CliOptions = {
     repoRoot: process.cwd(),
     base: process.env.GITHUB_BASE_REF ?? 'main',
@@ -74,6 +75,17 @@ function parseArgs(argv: string[]): CliOptions | 'help' {
   }
 
   return options;
+}
+
+/** `String(someObject)` collapses to the useless "[object Object]" — this actually surfaces what went wrong. */
+export function formatUnknown(value: unknown): string {
+  if (value instanceof Error) return value.stack ?? value.message;
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 function requireValue(argv: string[], index: number, flag: string): string {
@@ -131,8 +143,8 @@ async function main(): Promise<void> {
   const result = await run.start({ inputData: { repoRoot: options.repoRoot, diff } });
 
   if (result.status !== 'success') {
-    const detail = result.status === 'failed' ? result.error : result.status;
-    throw new Error(`triageWorkflow did not succeed: ${String(detail)}`);
+    const detail = result.status === 'failed' ? formatUnknown(result.error) : result.status;
+    throw new Error(`triageWorkflow did not succeed (status: ${result.status}): ${detail}`);
   }
 
   const output = options.json ? JSON.stringify(result.result, null, 2) : result.result.report;
@@ -149,7 +161,15 @@ async function main(): Promise<void> {
   // itself worked, never what it concluded.
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+// Only run when this file is executed directly (`node src/cli.ts`), never as
+// a side effect of importing it — a test file imports `parseArgs` and
+// `formatUnknown` for direct testing, and that import must not trigger a
+// real git diff and a real model call.
+const isMainModule = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMainModule) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}

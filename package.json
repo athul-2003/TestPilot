@@ -1,13 +1,24 @@
 {
   "name": "testpilot",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Launchable-style test selection, but open-source, self-hostable, explainable, and works with zero setup — built on Mastra.",
   "license": "Apache-2.0",
-  "private": true,
   "type": "module",
   "engines": {
     "node": ">=22.13.0"
   },
+  "bin": {
+    "testpilot": "./src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/mastra/index.ts",
+    "./cli": "./src/cli.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "keywords": [
     "ci",
     "test-selection",
@@ -16,6 +27,10 @@
     "mastra",
     "ai-agent"
   ],
+  "homepage": "https://github.com/athul-2003/TestPilot",
+  "bugs": {
+    "url": "https://github.com/athul-2003/TestPilot/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/athul-2003/TestPilot.git"
