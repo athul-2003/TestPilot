@@ -1,0 +1,52 @@
+## Copy this file into your own repo at .github/workflows/testpilot.yml
+## to get Testpilot's test-selection report on every pull request.
+##
+## It deliberately does NOT live at .github/workflows/ in this repo: any
+## .yml file there is auto-discovered and actually run by GitHub Actions,
+## which would make this example a real, self-referential workflow on
+## Testpilot's own PRs. Living in examples/ keeps it inert here while
+## staying exactly what gets copied into a consumer's repo.
+##
+## Two things this workflow needs, spelled out rather than left implicit:
+##
+##   1. fetch-depth: 0 on checkout. Testpilot computes the diff via
+##      `git merge-base <base> HEAD` — a shallow checkout (the GitHub Actions
+##      default, depth 1) doesn't have the history to find that ancestor, and
+##      the run will fail with a clear error rather than silently produce a
+##      wrong diff.
+##
+##   2. The permissions block below. Posting the report as a PR comment uses
+##      the Issues API even for a PR, so both pull-requests:write and
+##      issues:write are required — not just one. contents:read is the
+##      default GITHUB_TOKEN scope needed to check the repo out at all.
+##      Nothing here needs write access to the repository's code itself.
+
+name: Testpilot
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  test-selection:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run Testpilot
+        uses: athul-2003/TestPilot@v0.1.0
+        with:
+          # Groq is the default provider — fast and cheap, which matters
+          # since this runs on every PR. Add the secret with:
+          #   gh secret set GROQ_API_KEY
+          groq-api-key: ${{ secrets.GROQ_API_KEY }}
