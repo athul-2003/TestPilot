@@ -28,7 +28,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "eval": "node --env-file=.env src/mastra/scorers/run-eval.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",

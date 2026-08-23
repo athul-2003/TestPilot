@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    name: Quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  regression-guard:
+    name: Regression-guard eval (Phase 6)
+    runs-on: ubuntu-latest
+    needs: quality
+    env:
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      # `npm run eval` uses `node --env-file=.env` for local development,
+      # where a real .env exists. CI never has a committed .env —
+      # `--env-file` hard-fails (exit code 9) when the file is missing, even
+      # though the variables it would set are already in the process
+      # environment from the job-level `env:` above. So this step calls the
+      # script directly, skipping --env-file entirely — confirmed necessary
+      # by reproducing the failure locally before writing this workflow.
+      - name: Run regression-guard eval
+        if: ${{ env.GROQ_API_KEY != '' }}
+        run: node src/mastra/scorers/run-eval.ts
+
+      - name: Note — eval skipped
+        if: ${{ env.GROQ_API_KEY == '' }}
+        run: |
+          echo "::warning::GROQ_API_KEY secret is not configured for this repository, so the regression-guard eval was skipped."
+          echo "Add it with: gh secret set GROQ_API_KEY"
+
+      - name: Upload metrics report
+        if: ${{ env.GROQ_API_KEY != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-guard-metrics
+          path: fixtures/sample-repo-scenarios/metrics-report.md

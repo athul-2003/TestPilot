@@ -1,0 +1,6 @@
+{
+  "name": "sample-repo",
+  "version": "1.0.0",
+  "description": "A small pricing app used as Testpilot's ground-truth evaluation fixture.",
+  "private": true
+}

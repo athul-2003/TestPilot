@@ -1,0 +1,14 @@
+diff --git a/src/discount.test.ts b/src/discount.test.ts
+index 1111111..2222222 100644
+--- a/src/discount.test.ts
++++ b/src/discount.test.ts
+@@ -9,5 +9,9 @@
+
+   it('leaves the price unchanged at zero discount', () => {
+     expect(applyDiscount(50, 0)).toBe(50);
+   });
++
++  it('reduces the price to zero at a full discount', () => {
++    expect(applyDiscount(75, 1)).toBe(0);
++  });
+ });

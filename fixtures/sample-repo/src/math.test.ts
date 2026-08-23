@@ -1,0 +1,13 @@
+import { describe, expect, it } from 'vitest';
+
+import { add, multiply } from './math.ts';
+
+describe('math', () => {
+  it('adds two numbers', () => {
+    expect(add(2, 3)).toBe(5);
+  });
+
+  it('multiplies two numbers', () => {
+    expect(multiply(2, 3)).toBe(6);
+  });
+});

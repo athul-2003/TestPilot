@@ -18,7 +18,7 @@
 | 3 | Select tests | `phase/3-test-selection` | ✅ Merged |
 | 4 | Report, confidence & fallback | `phase/4-report-confidence` | ✅ Merged |
 | 5 | Flaky budget | `phase/5-flaky-budget` | ✅ Merged |
-| 6 | Fixture repo & regression-guard eval | `phase/6-eval-harness` | ⬜ Not started |
+| 6 | Fixture repo & regression-guard eval | `phase/6-eval-harness` | ✅ Merged |
 | 7 | Ship — README, Action, demo | `phase/7-ship` | ⬜ Not started |
 | 8 | Launch — community & templates | `phase/8-launch` | ⬜ Not started |
 
@@ -205,20 +205,33 @@ A third, environment-level issue, not a code bug: `@libsql/client`'s local Node 
 
 **Goal:** prove the trust metric — Testpilot never skips a test that would have failed.
 
-**Concepts to introduce:** Mastra Scorers (`@mastra/evals`), ground-truth evaluation, why this is the headline credibility number.
+**Concepts to introduce:** Mastra Scorers (`createScorer`, from `@mastra/core/evals` — **not** the `@mastra/evals` package, which turned out to hold only prebuilt LLM-judge scorers with no generic factory), ground-truth evaluation, why this is the headline credibility number.
 
 **Steps**
-- [ ] Build `fixtures/sample-repo/` — a small TypeScript project with ~10 Vitest tests where the correct selection for each seeded change is known by hand.
-- [ ] Seed a set of changes covering: pure-logic change, shared-util change, type-only change, test-only change, config change, and a change that *should* trip the fallback.
-- [ ] `scorers/regression-guard.ts`: run the selected set **and** the full suite; assert no skipped test would have failed.
-- [ ] Record the metrics table: CI-minute reduction, missed regressions, flaky-flag precision, confidence calibration.
-- [ ] Wire the eval into CI so every PR reports it.
+- [x] `fixtures/sample-repo/` — a real, runnable 6-source/5-test-file Vitest project (10 `it()` blocks) with a genuine dependency chain: `math.ts ← discount.ts ← pricing.ts`, plus an isolated `format.ts`, plus `types.ts` (type-only) consumed by `pricing.ts` and `validate.ts`. Every test passes for real (`npx vitest run --root fixtures/sample-repo`) before any scenario touches it.
+- [x] Six seeded scenarios, each with a hand-written diff **and** the real post-change file content overlaid on a temp copy — the same "diff describes a real checkout" discipline every phase's live verification has used since Phase 4. Ground truth for all six was written to `scenario-ground-truth.ts` **before** any scenario was run, per this phase's own warning:
+  1. **Pure-logic, isolated** — `format.ts`, zero dependents.
+  2. **Shared-util, with a real deliberate bug** — `math.multiply` returns `a * b + 1`, genuinely breaking 3 tests transitively. The only scenario with actual teeth.
+  3. **Type-only** — an unused optional field added to `Order`. Deliberately demonstrates a known, undocumented-until-now limitation: the import graph doesn't distinguish `import type` from a runtime import, so type-only edits still show up as reachable.
+  4. **Test-only** — a new case added directly to `discount.test.ts`.
+  5. **Config change** — `package.json`'s description field, zero TypeScript files touched.
+  6. **Trip the fallback** — a diff for `src/phantom.ts`, which doesn't exist on disk (same technique Phases 4–5 used).
+- [x] `scorers/regression-guard.ts`: a real `createScorer` instance, pure function-mode (no LLM judge — "did the skip list intersect the failure list" is mechanically checkable, and a judge would only add cost and a new place to be wrong). `eval-harness.ts` supplies its input empirically: a **real Vitest subprocess** run against each scenario's actual changed state, never a hand-asserted prediction.
+- [x] Metrics table rendered by `eval-harness.ts` and written to `fixtures/sample-repo-scenarios/metrics-report.md` by `npm run eval` — missed regressions, estimated CI-minute reduction (from the workflow's own placeholder-labeled estimate), selection efficiency (ideal-skip achieved vs. hand-derived maximum), per-scenario confidence calibration, and an honest note that flaky-flag precision isn't exercised by this fixture (Phase 5's own live verification already covers it directly).
+- [x] `.github/workflows/ci.yml` — the project's **first CI workflow**: a `quality` job (typecheck/lint/test/build) plus a `regression-guard` job that runs the real eval when `GROQ_API_KEY` is configured as a repo secret, and posts a visible warning (not a failure) when it isn't. **Not yet proven by a real CI run** — GitHub Actions syntax can only be fully validated by actually triggering it, which happens once this PR merges.
 
-**Deliverables:** fixture repo, regression-guard scorer, a metrics table committed to the repo and reproducible by anyone.
+**Deliverables:** `fixtures/sample-repo/` (real, passing baseline), `fixtures/sample-repo-scenarios/` (6 scenarios + ground truth, committed before running), `scorers/regression-guard.ts`, `scorers/eval-harness.ts`, `scorers/run-eval.ts` (the `npm run eval` entry point), `metrics-report.md` (committed, reproducible), `.github/workflows/ci.yml`, 99 tests total across the project (5 new this phase — the harness itself is verified by real execution, not exhaustive unit tests, since it *is* the verification).
 
-**Exit gate:** across all seeded changes, **missed regressions = 0**, and the measured CI-minute reduction is a real number you'd publish.
+**Exit gate:** ✅ Met — **missed regressions: 0 of 6 scenarios**, including scenario 2's real, deliberate bug (3 tests genuinely failed for real; Testpilot ran all of them). Confidence calibration: 6/6 scenarios matched their hand-written expectation (confident vs. fallback). CI-minute reduction is reported honestly as a small, real, placeholder-labeled number (0.2–0.4 minutes across two separate real runs) rather than an inflated one.
 
-**Watch out for:** a fixture repo tuned until the agent passes is worthless. Write the expected answers *before* running the agent, and don't edit them afterwards.
+**Two honest findings, reported rather than fixed:**
+
+1. **The agent almost never uses `skip`.** Across two separate real runs, selection efficiency (tests skipped out of the hand-derived "safe to skip" maximum) was 2/20 and 4/20 — the safety property (missed regressions = 0) held perfectly in both, but the CI-minute-saving upside is barely realized in practice. `should-run` absorbed almost everything a more decisive tool would have skipped, even in scenario 1's textbook-isolated case. This is impact-agent's rule 4/7 bias toward inclusion working exactly as instructed — not a bug — but it's a real, measured trade-off worth knowing about, not a number to quietly improve by editing the prompt mid-eval (that would be exactly the "tuned until it passes" the worksheet warns against). Recorded as a follow-up for deliberate, evidence-driven prompt iteration later, not fixed here.
+2. **A config-only change scores maximum confidence (1.00), not reduced confidence**, even though Testpilot has zero real insight into what a `package.json`/non-TS change might do. `buildImpactStep` filters to TypeScript files before computing `impacted`, so a diff with no TS files produces an *empty* impacted array — and `confidence.ts`'s `graphCoverage`/`graphCertainty` both treat "nothing to search" as full certainty (1.0), not as a blind spot. Confirmed empirically, not just predicted. A candidate D3 refinement for later: a diff with zero changed TS files might deserve its own, deliberately lower confidence ceiling — not implemented here, since Phase 6's job is measurement, not redesign.
+
+**Run-to-run variance, observed directly:** two separate real `npm run eval` runs during this phase produced different exact selections for scenarios 2 and 4 (e.g. scenario 2 skipped 0 tests in one run, 2 in another) while **missed regressions stayed 0 in both**. This is genuine LLM sampling variance, consistent with what Phases 3–5 already observed — reported plainly rather than cherry-picking the better-looking run for the committed `metrics-report.md`.
+
+**Watch out for — followed literally:** `scenario-ground-truth.ts` was written and committed in its own step, before any scenario was run through Testpilot, and was not edited afterward. The two findings above were discovered *because* the ground truth couldn't be quietly adjusted to match whatever the agent happened to produce.
 
 ---
 
