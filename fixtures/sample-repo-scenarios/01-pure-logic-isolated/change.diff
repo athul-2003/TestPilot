@@ -1,0 +1,10 @@
+diff --git a/src/format.ts b/src/format.ts
+index 1111111..2222222 100644
+--- a/src/format.ts
++++ b/src/format.ts
+@@ -1,4 +1,4 @@
+ /** Formats a number as a US-dollar string, e.g. 9.5 -> "$9.50". */
+ export function formatCurrency(amount: number): string {
+-  return `$${amount.toFixed(2)}`;
++  return '$' + amount.toFixed(2);
+ }
