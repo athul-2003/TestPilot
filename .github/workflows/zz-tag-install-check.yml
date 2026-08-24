@@ -1,0 +1,30 @@
+# TEMPORARY: verifies the published tag actually installs.
+# Deleted before this branch is merged; it exists only to prove that
+# `uses: athul-2003/TestPilot@v0.1.0` — what examples/ tells adopters to
+# write — resolves and runs. The permanent dogfood workflow uses `./`,
+# which deliberately does not exercise the tag.
+name: Tag install check
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  consumer-path:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Run Testpilot exactly as an adopter would
+        uses: athul-2003/TestPilot@v0.1.0
+        with:
+          groq-api-key: ${{ secrets.GROQ_API_KEY }}
+          post-comment: 'false'
