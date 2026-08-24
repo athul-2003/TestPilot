@@ -1,0 +1,40 @@
+{
+  // Build config for the *published package* only. `npm run typecheck` and
+  // the Mastra server build both keep using tsconfig.json unchanged.
+  //
+  // This exists because Node refuses to strip types from files inside
+  // node_modules (ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING). Running
+  // TypeScript directly is fine from a git checkout — which is how the
+  // GitHub Action works — but a package installed from npm must ship real
+  // JavaScript or neither `npx testpilot` nor `import from 'testpilot'`
+  // resolves at all.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "types": ["node"],
+    "outDir": "dist",
+    "rootDir": "src",
+
+    // The source imports local files with their real `.ts` extension,
+    // because that's what the runtime requires when Node executes the
+    // TypeScript directly. This rewrites those specifiers to `.js` in the
+    // emitted output, so the compiled package resolves correctly.
+    "rewriteRelativeImportExtensions": true,
+
+    // Consumers get types, and the source maps point back at the real
+    // TypeScript so a stack trace from an installed copy stays readable.
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  // Tests and the evaluation harness are development tooling: the harness
+  // reads fixtures that the package deliberately doesn't ship, so compiling
+  // it would only produce a module that throws on import.
+  "include": ["src/**/*"],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/mastra/scorers/run-eval.ts",
+    "src/mastra/scorers/eval-harness.ts",
+    "src/mastra/scorers/scenario-ground-truth.ts"
+  ]
+}
