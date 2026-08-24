@@ -85,7 +85,7 @@ describe('selectTests', () => {
     expect(result.latencyMs).toBeGreaterThanOrEqual(0);
   });
 
-  it('warns about a test the model forgot, without dropping the ones it did return', async () => {
+  it('never drops a test the model forgot — defaults it to must-run instead of omitting it from every bucket', async () => {
     const fake = fakeGenerator({
       selections: [
         { path: 'src/calc.test.ts', bucket: 'must-run', rationale: 'Directly imports the changed function.', confidence: 0.95 },
@@ -95,7 +95,13 @@ describe('selectTests', () => {
 
     const result = await selectTests({ repoRoot: fixtureRoot, diff: loadDiff('change-calc.diff') }, fake);
 
-    expect(result.selections).toHaveLength(1);
+    // All three inventory tests must appear in `selections` — a test the
+    // model's response omits still needs a bucket, not a silent disappearance.
+    expect(result.selections).toHaveLength(3);
+    const byPath = Object.fromEntries(result.selections.map((s) => [s.path, s]));
+    expect(byPath['src/calc.test.ts']!.bucket).toBe('must-run');
+    expect(byPath['src/calc-user.test.ts']!.bucket).toBe('must-run');
+    expect(byPath['src/unrelated.test.ts']!.bucket).toBe('must-run');
     expect(result.warnings).toEqual(
       expect.arrayContaining([
         expect.stringContaining('src/calc-user.test.ts'),
@@ -104,7 +110,7 @@ describe('selectTests', () => {
     );
   });
 
-  it('warns about a hallucinated path that was never in the inventory', async () => {
+  it('drops a hallucinated path that was never in the inventory, and warns about it', async () => {
     const fake = fakeGenerator({
       selections: [
         { path: 'src/calc.test.ts', bucket: 'must-run', rationale: 'x', confidence: 0.9 },
@@ -116,6 +122,13 @@ describe('selectTests', () => {
 
     const result = await selectTests({ repoRoot: fixtureRoot, diff: loadDiff('change-calc.diff') }, fake);
 
+    // The hallucinated path must not reach `selections` — it can't be run or
+    // skipped since it doesn't exist in this repo.
+    expect(result.selections.map((s) => s.path).sort()).toEqual([
+      'src/calc-user.test.ts',
+      'src/calc.test.ts',
+      'src/unrelated.test.ts',
+    ]);
     expect(result.warnings).toEqual([expect.stringContaining('src/does-not-exist.test.ts')]);
   });
 });

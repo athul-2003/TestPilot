@@ -17,4 +17,4 @@
 
 </details>
 
-*Estimated minutes saved assumes 0.1 min/unit test, 0.5 min/integration test, 2 min/e2e test — placeholders until real historical run-time data is tracked (Phase 5), not measurements. Confidence is a weighted score over observable signals — never invented by the model — and this run's threshold is a starting value pending calibration (Phase 6).*
+*Estimated minutes saved assumes 0.1 min/unit test, 0.5 min/integration test, 2 min/e2e test — placeholders until real historical run-time data is tracked, not measurements. Confidence is a weighted score over observable signals — never invented by the model — and this run's threshold is a starting value pending further calibration.*

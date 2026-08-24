@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -114,6 +114,33 @@ describe('buildImportGraph + computeImpactedFiles, against the fixture tree', ()
     expect(second.filesScanned).toBe(first.filesScanned);
     expect(second.filesParsed).toBe(0); // warm cache: nothing needed re-parsing
     expect(second.forward.get('src/mid.ts')).toEqual(first.forward.get('src/mid.ts'));
+  });
+
+  it('re-resolves a cached file\'s edges against a newly-added target, without re-parsing the unchanged file', () => {
+    // `a.ts` imports `./helper`, which doesn't exist yet — the import can't
+    // resolve, so `a.ts`'s cached dependsOn is empty on the first run.
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'testpilot-import-graph-repo-'));
+    try {
+      mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+      writeFileSync(path.join(repoRoot, 'src', 'a.ts'), "import { x } from './helper';\nexport const y = x;\n");
+
+      const first = buildImportGraph(repoRoot, cacheDir);
+      expect(first.forward.get('src/a.ts')).toEqual([]);
+
+      // `helper.ts` is added; `a.ts` itself is never touched, so its cache
+      // entry's mtime and content hash are unchanged on the next run.
+      writeFileSync(path.join(repoRoot, 'src', 'helper.ts'), 'export const x = 1;\n');
+
+      const second = buildImportGraph(repoRoot, cacheDir);
+      expect(second.forward.get('src/a.ts')).toEqual(['src/helper.ts']);
+      // Re-resolution must not require re-parsing a.ts's AST.
+      expect(second.filesParsed).toBe(1); // only helper.ts, the genuinely new file
+
+      const [impact] = computeImpactedFiles(second, ['src/helper.ts'], 6);
+      expect(impact!.dependents).toEqual([{ file: 'src/a.ts', depth: 1, throughBarrel: false }]);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
   });
 });
 

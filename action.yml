@@ -5,7 +5,7 @@ branding:
   icon: 'check-circle'
   color: 'blue'
 
-# A thin wrapper, deliberately with no logic of its own (decision D6) — every
+# A thin wrapper, deliberately with no logic of its own — every
 # input here maps directly onto the CLI's own flags and environment
 # variables, so the engine's behavior is identical whether it's invoked
 # locally, from Studio, or from this Action.

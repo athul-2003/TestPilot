@@ -3,13 +3,13 @@ import { z } from 'zod';
 
 import { DEFAULT_FLAKE_PRIOR, MODEL } from '../config.ts';
 import { applyStructuralFloor, computeRepeatBudget } from '../tools/flaky-budget.ts';
-import { getRepoFailureRate, getTestFailureRate } from '../tools/test-history-tool.ts';
+import { getRepoFailureRate, getTestFailureRate, type TestHistoryStats } from '../tools/test-history-tool.ts';
 import type { StructuredGenerator } from './structured-generator.ts';
 
 /**
  * Reads a test's source and flags **structural** flakiness — patterns known
  * to make a test unreliable by construction, independent of any run
- * history. This is the half of decision D4 that genuinely needs judgment:
+ * history. This is the half of the flaky budget that genuinely needs judgment:
  * "does this test sleep for a fixed delay and hope that's long enough?" is a
  * question about what the code is *doing*, not something a regex over
  * keywords can answer reliably (a test *asserting* that a function throws on
@@ -17,8 +17,8 @@ import type { StructuredGenerator } from './structured-generator.ts';
  * depends on `Date.now()`).
  *
  * What this agent explicitly does **not** do: decide how many times to
- * re-run anything. Per the worksheet's own rule, an LLM asked "how many
- * times should this run?" produces a confident, ungrounded round number.
+ * re-run anything. That's a deliberate rule: an LLM asked "how many times
+ * should this run?" produces a confident, ungrounded round number.
  * This agent's output — a risk level and a list of named patterns — only
  * ever sets a *minimum floor* that
  * {@link import('../tools/flaky-budget.ts').applyStructuralFloor} applies on
@@ -103,7 +103,7 @@ ${sourceText}
   return { assessment: response.object, usage: response.usage ?? {}, latencyMs };
 }
 
-// --- Combining statistical and structural signals (D4) ------------------
+// --- Combining statistical and structural signals ----------------------
 
 export interface FlakyBudget {
   testPath: string;
@@ -115,7 +115,7 @@ export interface FlakyBudget {
 }
 
 /**
- * Computes one test's repeat-run budget, per decision D4: a statistical
+ * Computes one test's repeat-run budget: a statistical
  * prior from real history (this test's own, falling back to the repo-wide
  * rate, falling back to a documented default for a repo with no history at
  * all) — optionally raised by a structural risk assessment for a genuinely
@@ -127,14 +127,22 @@ export interface FlakyBudget {
  * the diff itself) and omit it for tests with existing history, where an
  * extra model call would buy little over the statistical signal already in
  * hand.
+ *
+ * `knownTestStats` lets a caller that has *already* looked this test's
+ * history up hand the result over instead of paying for the same query
+ * twice — the triage workflow reads it to decide whether a test is unstable
+ * enough to need a budget at all, and would otherwise re-read it here for
+ * every single candidate. Omitting it means "look it up", not "this test has
+ * no history".
  */
 export async function computeFlakyBudget(
   repoRoot: string,
   testPath: string,
   sourceText: string | undefined,
   generator: StructuredGenerator<typeof flakyAssessmentOutputSchema> = flakyAgent,
+  knownTestStats?: TestHistoryStats,
 ): Promise<FlakyBudget> {
-  const testStats = await getTestFailureRate(repoRoot, testPath);
+  const testStats = knownTestStats ?? (await getTestFailureRate(repoRoot, testPath));
 
   let basePrior: number;
   let priorSource: FlakyBudget['priorSource'];

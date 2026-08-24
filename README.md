@@ -2,7 +2,7 @@
 
 > Launchable-style test selection, but open-source, self-hostable, explainable, and works with zero setup — built on [Mastra](https://mastra.ai).
 
-**Status:** the engine works and is verified with real data — diff parsing, impact mapping, LLM-reasoned selection, confidence scoring with a run-everything fallback, flaky-repeat budgets, and a ground-truth eval proving **0 missed regressions** across every scenario tested. This phase (7 of 8) is packaging that engine for easy adoption: a CLI, a GitHub Action, and this README. Not yet published to npm — see [Installing](#installing). Full history and the phase-by-phase roadmap: [worksheet.md](worksheet.md). Full brief: [PROJECT_IDEA_TESTPILOT.md](PROJECT_IDEA_TESTPILOT.md).
+**Status:** early, but real and verified end-to-end — diff parsing, impact mapping, LLM-reasoned selection, confidence scoring with a run-everything fallback, flaky-repeat budgets, and a ground-truth eval proving **0 missed regressions** across every scenario tested. Ships as a CLI and a GitHub Action. Not yet published to npm — see [Installing](#installing).
 
 ---
 
@@ -46,7 +46,7 @@ Every number below comes from [`fixtures/sample-repo-scenarios/metrics-report.md
 
 One of those six scenarios seeds an actual off-by-one bug in a shared utility, breaking three tests transitively — verified by really running the suite, not by asserting what should happen. Testpilot ran all three affected tests; nothing was skipped that shouldn't have been.
 
-**What the eval also found, and didn't hide:** selection efficiency (how many of the safely-skippable tests actually got skipped) was 2 of 20 and 4 of 20 across two separate real runs. The safety property held in both — but Testpilot currently trades away much of its CI-minute-saving upside for extra caution, favoring `should-run` over `skip` more often than a maximally-efficient tool would. That's the honest state of it right now, not something smoothed over for this README. Full writeup, including a second finding about confidence on config-only changes: [worksheet.md, Phase 6](worksheet.md).
+**What the eval also found, and didn't hide:** selection efficiency (how many of the safely-skippable tests actually got skipped) was 2 of 20 and 4 of 20 across two separate real runs. The safety property held in both — but Testpilot currently trades away much of its CI-minute-saving upside for extra caution, favoring `should-run` over `skip` more often than a maximally-efficient tool would. That's the honest state of it right now, not something smoothed over for this README. A second finding, about confidence scoring on config-only changes, is recorded under [Known limitations](#known-limitations).
 
 ## Requirements
 
@@ -96,14 +96,15 @@ Opens Mastra Studio at `http://localhost:4111` — run any tool, agent, or the f
 
 ## Models
 
-Testpilot runs on two tiers, both plain `"provider/model"` strings:
+Testpilot's agents run on one model, a plain `"provider/model"` string:
 
 | Setting | Default | Used for |
 |---|---|---|
-| `TESTPILOT_MODEL` | `groq/openai/gpt-oss-120b` | Everyday runs — the bulk of the work |
-| `TESTPILOT_MODEL_CRITICAL` | `openai/gpt-5.4-mini` | Ambiguous selection calls and evaluation runs |
+| `TESTPILOT_MODEL` | `groq/openai/gpt-oss-120b` | Every agent call — test selection and flaky assessment |
 
-Point either at whatever you like — a different provider, or a local model. Swapping is a one-line change, which is what makes "self-hostable" a real claim rather than a slogan.
+Point it at whatever you like — a different provider, or a local model. Swapping is a one-line change, which is what makes "self-hostable" a real claim rather than a slogan.
+
+`TESTPILOT_MODEL_CRITICAL` also exists in `src/mastra/config.ts`, reserved for a future dynamic-tiering feature (routing genuinely ambiguous selection calls to a stronger model mid-run) — it's not wired into any agent yet, disclosed here rather than left as a gap between what's documented and what runs.
 
 ## Privacy
 

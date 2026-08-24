@@ -12,7 +12,7 @@ import { triageWorkflow } from './mastra/workflows/triage-workflow.ts';
  * the composite GitHub Action actually invokes. Every earlier phase built
  * and verified the engine directly, through `triageWorkflow.createRun()` in
  * one-off scripts; this is the first place a real `git diff` against a real
- * merge base (decision **D1**) gets computed for real, rather than a diff
+ * merge base gets computed for real, rather than a diff
  * string handed in by hand.
  */
 
@@ -95,7 +95,7 @@ function requireValue(argv: string[], index: number, flag: string): string {
 }
 
 /**
- * Computes `git diff <merge-base> HEAD`, per decision D1 — the same string
+ * Computes `git diff <merge-base> HEAD` — the same string
  * shape whether run locally, in Studio, or from the Action.
  *
  * `git merge-base` needs enough history to find the common ancestor. A

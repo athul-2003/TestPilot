@@ -3,7 +3,6 @@ import { LibSQLStore } from '@mastra/libsql';
 
 import { flakyAgent } from './agents/flaky-agent.ts';
 import { impactAgent } from './agents/impact-agent.ts';
-import { smokeAgent } from './agents/smoke-agent.ts';
 import { astParseTool } from './tools/ast-parse-tool.ts';
 import { ciAnnotateTool } from './tools/ci-annotate-tool.ts';
 import { gitDiffTool } from './tools/git-diff-tool.ts';
@@ -36,7 +35,6 @@ import { triageWorkflow } from './workflows/triage-workflow.ts';
  */
 export const mastra = new Mastra({
   agents: {
-    smokeAgent,
     impactAgent,
     flakyAgent,
   },

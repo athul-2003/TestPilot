@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 /**
  * An **AST** (abstract syntax tree) is source code represented as a tree of
- * nodes you can query programmatically, instead of a flat string. Phase 1's
+ * nodes you can query programmatically, instead of a flat string. The
  * `git-diff-tool` guesses at symbol names with regex over diff text — fast,
  * but blind to anything the regex doesn't anticipate. This tool asks the real
  * TypeScript compiler to parse the file and read its structure directly:
@@ -178,7 +178,7 @@ function isDefaultExport(node: ts.Node): boolean {
  *
  * Exported separately from the Mastra tool so the import-graph tool can call
  * it directly — and so it can be unit tested without going through Mastra's
- * tool-execution machinery, the same pattern Phase 1 used for
+ * tool-execution machinery, the same pattern used for
  * `parseUnifiedDiff`.
  */
 export function parseTypeScriptFile(filePath: string, sourceText: string): AstParseResult {
@@ -229,7 +229,7 @@ export function parseTypeScriptFile(filePath: string, sourceText: string): AstPa
       for (const decl of statement.declarationList.declarations) {
         // Destructuring declarations (`const { a, b } = x`) have no single
         // name to report — a real gap, but a narrow one: top-level
-        // destructuring is rare, and Phase 1's regex pass over the diff text
+        // destructuring is rare, and the diff tool's regex pass over the diff text
         // remains a fallback signal for anything this misses.
         if (!ts.isIdentifier(decl.name)) continue;
         const declaredName = decl.name.text;
