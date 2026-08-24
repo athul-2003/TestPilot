@@ -27,7 +27,7 @@ cp .env.example .env      # add a provider key — see the README's Models secti
 npm run dev                # Studio at http://localhost:4111
 ```
 
-Requires Node.js 22.13+.
+Requires Node.js 22.18+ (24 LTS recommended) — the CLI is a .ts file Node runs directly, which needs the type stripping enabled by default from 22.18.
 
 ## Quality gates
 

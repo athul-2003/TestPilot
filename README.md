@@ -61,7 +61,7 @@ A further finding, about confidence scoring on config-only changes, is under [Kn
 
 ## Requirements
 
-- **Node.js 22.13+** (24 LTS recommended)
+- **Node.js 22.18+** (24 LTS recommended) — Testpilot runs its TypeScript entry point directly, and Node enables that by default from 22.18
 - An API key for at least one model provider — **Groq** or **OpenAI** by default, though Mastra's router accepts any provider it supports
 - A TypeScript project using **Vitest** — the first ecosystem targeted. Python/pytest is planned as a second adapter.
 
