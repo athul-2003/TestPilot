@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { buildPromptPayload, selectTests, testSelectionOutputSchema, type TestSelectionResult } from './impact-agent.ts';
+import { buildPromptPayload, runSelection, selectTests, testSelectionOutputSchema, type TestSelectionResult } from './impact-agent.ts';
 import type { StructuredGenerator } from './structured-generator.ts';
 
 const fixtureRoot = fileURLToPath(new URL('../../../fixtures/impact-agent/', import.meta.url));
@@ -108,6 +108,47 @@ describe('selectTests', () => {
         expect.stringContaining('src/unrelated.test.ts'),
       ]),
     );
+  });
+
+  it('defers tests that do not fit the prompt budget to should-run, never skip', async () => {
+    // The fake answers only for what it is actually asked about, which is
+    // the point: anything the budget withheld was never classified at all.
+    const fake: StructuredGenerator<typeof testSelectionOutputSchema> = {
+      generate: async (prompt: string) => {
+        const asked = ['src/calc.test.ts', 'src/calc-user.test.ts', 'src/unrelated.test.ts'].filter((p) =>
+          prompt.includes(p),
+        );
+        return {
+          object: {
+            selections: asked.map((path) => ({
+              path,
+              bucket: 'skip' as const,
+              rationale: 'Model claims this is safe to skip.',
+              confidence: 0.9,
+            })),
+          },
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        };
+      },
+    };
+
+    const payload = buildPromptPayload(fixtureRoot, loadDiff('change-calc.diff'), 6);
+    // A budget far too small for all three tests.
+    const result = await runSelection(payload, fake, 120);
+
+    expect(result.deferredCount).toBeGreaterThan(0);
+
+    // Every inventory test is still accounted for.
+    expect(result.selections).toHaveLength(payload.tests.length);
+
+    // The critical property: a test the budget withheld is never skipped,
+    // because nothing ever reasoned about it.
+    const deferred = result.selections.filter((s) => s.rationale.includes('token budget'));
+    expect(deferred.length).toBe(result.deferredCount);
+    for (const entry of deferred) expect(entry.bucket).toBe('should-run');
+
+    expect(result.warnings.some((w) => w.includes('prompt budget'))).toBe(true);
+    expect(result.promptTokens).toBeGreaterThan(0);
   });
 
   it('drops a hallucinated path that was never in the inventory, and warns about it', async () => {

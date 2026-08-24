@@ -319,6 +319,7 @@ const runAllStep = createStep({
       totalTestCount: allPaths.length,
       flakyBudgets: flakyResult.flakyBudgets,
       warnings: selectResult.warnings,
+      usage: { ...selectResult.usage, latencyMs: selectResult.latencyMs },
     });
 
     return {
@@ -362,6 +363,7 @@ const buildReportStep = createStep({
       totalTestCount: selectResult.testInventory.length,
       flakyBudgets: flakyResult.flakyBudgets,
       warnings: selectResult.warnings,
+      usage: { ...selectResult.usage, latencyMs: selectResult.latencyMs },
     });
 
     return {

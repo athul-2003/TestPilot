@@ -58,6 +58,20 @@ export const ciAnnotateInputSchema = z.object({
    * a tool like this loses trust.
    */
   warnings: z.array(z.string()).optional(),
+  /**
+   * What this run actually cost. Reported because a tool that spends tokens
+   * on every pull request should say how many, in the same place it claims
+   * to have saved you time — otherwise the saving is the only half of the
+   * trade anyone ever sees.
+   */
+  usage: z
+    .object({
+      inputTokens: z.number().optional(),
+      outputTokens: z.number().optional(),
+      totalTokens: z.number().optional(),
+      latencyMs: z.number().optional(),
+    })
+    .optional(),
 });
 
 export const ciAnnotateOutputSchema = z.object({
@@ -102,6 +116,17 @@ function renderFlakySection(budgets: ReportedFlakyBudget[]): string {
   });
 
   return `### 🎲 Flaky risk\n\n${lines.join('\n')}`;
+}
+
+/** Returns '' when no usage was recorded — e.g. a run that never reached the model. */
+function renderUsageLine(usage: CiAnnotateInput['usage']): string {
+  if (!usage) return '';
+  const parts: string[] = [];
+  if (usage.totalTokens !== undefined) parts.push(`${usage.totalTokens.toLocaleString()} tokens`);
+  else if (usage.inputTokens !== undefined) parts.push(`${usage.inputTokens.toLocaleString()} input tokens`);
+  if (usage.latencyMs !== undefined) parts.push(`${(usage.latencyMs / 1000).toFixed(1)}s`);
+  if (parts.length === 0) return '';
+  return `*This run cost ${parts.join(' · ')}.*`;
 }
 
 /** Returns '' on a clean run, which is most of them. */
@@ -174,6 +199,10 @@ export function renderReport(input: CiAnnotateInput): string {
   if (warningsSection) sections.push(warningsSection);
 
   sections.push(renderSignalsTable(input.signals));
+
+  const usageLine = renderUsageLine(input.usage);
+  if (usageLine) sections.push(usageLine);
+
   sections.push(FOOTNOTE);
 
   return sections.join('\n\n');

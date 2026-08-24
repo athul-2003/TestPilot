@@ -1,10 +1,11 @@
 import { Agent } from '@mastra/core/agent';
 import { z } from 'zod';
 
-import { MAX_IMPACT_DEPTH, MODEL } from '../config.ts';
+import { MAX_IMPACT_DEPTH, MAX_PROMPT_TOKENS, MODEL } from '../config.ts';
 import { parseUnifiedDiff, type FileChange } from '../tools/git-diff-tool.ts';
 import { buildImportGraph, computeImpactedFiles, type Dependent, type ImpactedEntry } from '../tools/import-graph-tool.ts';
 import { buildTestInventory, type TestFileInfo } from '../tools/test-inventory-tool.ts';
+import { applyPromptBudget } from './prompt-budget.ts';
 import type { StructuredGenerator } from './structured-generator.ts';
 
 /**
@@ -78,7 +79,7 @@ interface ReachEntry {
   throughBarrel: boolean;
 }
 
-interface PromptTest {
+export interface PromptTest {
   path: string;
   testType: string;
   testTitles: string[];
@@ -173,6 +174,10 @@ export interface SelectTestsResult {
   warnings: string[];
   usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
   latencyMs: number;
+  /** Estimated prompt size actually sent, after budgeting. */
+  promptTokens: number;
+  /** Tests withheld from the prompt to stay in budget; each defaults to `should-run`. */
+  deferredCount: number;
 }
 
 /**
@@ -185,16 +190,22 @@ export interface SelectTestsResult {
 export async function runSelection(
   payload: PromptPayload,
   generator: StructuredGenerator<typeof testSelectionOutputSchema> = impactAgent,
+  maxPromptTokens: number = MAX_PROMPT_TOKENS,
 ): Promise<SelectTestsResult> {
+  // Trim before sending rather than discovering the limit from a 413. What
+  // gets withheld is chosen by graph reachability and never skipped — see
+  // prompt-budget.ts for why that direction is the only safe one.
+  const budgeted = applyPromptBudget(payload, maxPromptTokens);
+
   const prompt = `Classify every test below for this change. Respond with exactly one entry per test in "tests".
 
-${JSON.stringify(payload, null, 2)}`;
+${JSON.stringify(budgeted.payload, null, 2)}`;
 
   const startedAt = Date.now();
   const response = await generator.generate(prompt, { structuredOutput: { schema: testSelectionOutputSchema } });
   const latencyMs = Date.now() - startedAt;
 
-  const inventoryPaths = new Set(payload.tests.map((t) => t.path));
+  const inventoryPaths = new Set(budgeted.payload.tests.map((t) => t.path));
   const returnedPaths = new Set(response.object.selections.map((s) => s.path));
 
   const warnings: string[] = [];
@@ -223,7 +234,43 @@ ${JSON.stringify(payload, null, 2)}`;
     });
   }
 
-  return { selections, warnings, usage: response.usage ?? {}, latencyMs };
+  // Tests withheld from the prompt were never classified by anything, so
+  // they take the safe bucket by construction. `should-run` rather than
+  // `must-run` because these are, by the graph's own ranking, the tests
+  // least likely to be reachable from the change — but they still execute,
+  // so a deferral can cost CI minutes and never a missed regression.
+  for (const path of budgeted.deferredTests) {
+    selections.push({
+      path,
+      bucket: 'should-run',
+      rationale:
+        'Not sent to the model: the prompt hit its token budget, and this test ranked least reachable from the change. Running it anyway rather than assuming it is safe to skip.',
+      confidence: 0,
+    });
+  }
+
+  if (budgeted.deferredTests.length > 0) {
+    warnings.push(
+      `${budgeted.deferredTests.length} test(s) exceeded the ${maxPromptTokens}-token prompt budget and were not classified; ` +
+        'each defaults to should-run. On a provider tier with a higher limit, raise TESTPILOT_MAX_REQUEST_TOKENS to classify more of them.',
+    );
+  }
+
+  if (budgeted.droppedDependents > 0) {
+    warnings.push(
+      `${budgeted.droppedDependents} dependent entr(ies) were trimmed from the impact summary to fit the prompt budget. ` +
+        'Per-test reachability was still sent in full.',
+    );
+  }
+
+  return {
+    selections,
+    warnings,
+    usage: response.usage ?? {},
+    latencyMs,
+    promptTokens: budgeted.estimatedTokens,
+    deferredCount: budgeted.deferredTests.length,
+  };
 }
 
 /**
