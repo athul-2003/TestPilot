@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
+import { MODEL } from '../config.ts';
 import { triageWorkflow, type TriageResult } from '../workflows/triage-workflow.ts';
 import { regressionGuardScorer } from './regression-guard.ts';
 import { SCENARIOS, type ScenarioGroundTruth } from './scenario-ground-truth.ts';
@@ -212,6 +213,12 @@ export function renderMetricsReport(results: ScenarioRunResult[]): string {
 
   const lines: string[] = [
     '# Testpilot regression-guard evaluation',
+    '',
+    // Which model produced these numbers is not a footnote — selection
+    // efficiency varies enormously by model tier, so a report that doesn't
+    // name its model isn't reproducible and invites the reader to assume
+    // the figures hold everywhere.
+    `_Model: \`${MODEL}\`_`,
     '',
     `**Missed regressions: ${missedCount} of ${results.length} scenarios.** This is the trust metric — it must read 0.`,
     '',
