@@ -33,6 +33,14 @@ import { triageWorkflow } from './workflows/triage-workflow.ts';
  * underlying technology; they solve two different, deliberately separate
  * problems.
  */
+/**
+ * The programmatic entry point, re-exported so `import { triageWorkflow }
+ * from 'testpilot'` — which the README documents — actually resolves. A
+ * consumer embedding Testpilot in their own tooling wants the workflow
+ * directly, not the whole Mastra registry.
+ */
+export { triageWorkflow, type TriageResult } from './workflows/triage-workflow.ts';
+
 export const mastra = new Mastra({
   agents: {
     impactAgent,

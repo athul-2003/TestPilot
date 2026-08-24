@@ -8,16 +8,23 @@
     "node": ">=22.18.0"
   },
   "bin": {
-    "testpilot": "./src/cli.ts"
+    "testpilot": "./dist/cli.js"
   },
   "exports": {
-    ".": "./src/mastra/index.ts",
-    "./cli": "./src/cli.ts"
+    ".": {
+      "types": "./dist/mastra/index.d.ts",
+      "default": "./dist/mastra/index.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "default": "./dist/cli.js"
+    }
   },
   "files": [
-    "src",
+    "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "keywords": [
     "ci",
@@ -44,12 +51,15 @@
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
     "test:watch": "vitest",
-    "eval": "node --env-file=.env src/mastra/scorers/run-eval.ts"
+    "eval": "node --env-file=.env src/mastra/scorers/run-eval.ts",
+    "build:dist": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build:dist"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",
     "@mastra/core": "1.59.0",
-    "@mastra/libsql": "^1.20.0",
+    "@mastra/libsql": "1.20.0",
+    "typescript": "^6.0.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -57,7 +67,6 @@
     "@types/node": "latest",
     "eslint": "^9.39.0",
     "mastra": "1.25.0",
-    "typescript": "^6.0.3",
     "typescript-eslint": "^8.46.0",
     "vitest": "^3.2.4"
   }
