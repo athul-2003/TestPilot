@@ -1,0 +1,51 @@
+# Testpilot running on Testpilot's own pull requests.
+#
+# This is deliberately self-referential, and deliberately different from
+# examples/testpilot-workflow.yml: the example pins a released tag, because
+# that is what an adopter copies. This one uses `./`, so every PR exercises
+# the Action exactly as it stands *on that PR's own branch*. A change that
+# breaks the Action therefore breaks it here, on the PR that introduced it,
+# rather than silently after release — which is the only way a composite
+# action gets tested at all short of publishing and hoping.
+#
+# Two things this needs, and they are easy to miss:
+#
+#   1. fetch-depth: 0 on checkout. Testpilot computes its diff via
+#      `git merge-base <base> HEAD`, and a shallow checkout (the Actions
+#      default, depth 1) has no common ancestor to find.
+#
+#   2. Both pull-requests:write and issues:write. Posting a comment on a PR
+#      goes through the Issues API even though it is a pull request, so one
+#      permission alone is not enough.
+
+name: Testpilot
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  test-selection:
+    name: Test selection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          # 24, not 22: Testpilot's entry point is a .ts file run directly by
+          # Node, and default type stripping only landed in 22.18. Pinning the
+          # current LTS avoids depending on which 22.x a runner happens to
+          # resolve to.
+          node-version: '24'
+
+      - name: Run Testpilot
+        uses: ./
+        with:
+          groq-api-key: ${{ secrets.GROQ_API_KEY }}

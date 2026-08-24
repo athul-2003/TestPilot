@@ -7,6 +7,40 @@
  */
 
 /**
+ * Reads a string setting, treating an empty or whitespace-only value as
+ * absent.
+ *
+ * `process.env.X ?? fallback` looks like it does this and does not: `??`
+ * only falls back on `null` and `undefined`, so an empty string sails
+ * straight through. That distinction is not academic — a GitHub composite
+ * action passes every unsupplied input as an empty string, so
+ * `TESTPILOT_MODEL: ${{ inputs.model }}` with no `model` given set the
+ * model to `""` and the Action failed on its first real run with
+ * "LanguageModel is required to create an Agent".
+ */
+export function envString(name: string, fallback: string): string {
+  const raw = process.env[name];
+  return raw !== undefined && raw.trim() !== '' ? raw.trim() : fallback;
+}
+
+/**
+ * Reads a numeric setting, falling back on anything that isn't a finite
+ * number — empty, whitespace, or garbage.
+ *
+ * `Number('')` is `0`, not `NaN`, which is the dangerous half of the same
+ * bug above: an empty `TESTPILOT_CONFIDENCE_THRESHOLD` would silently
+ * become a threshold of 0, and since every confidence score is `>= 0`,
+ * Testpilot would never once fall back to running the full suite. The
+ * safety net would be gone with nothing in the output to say so.
+ */
+export function envNumber(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+/**
  * The everyday working model.
  *
  * Mastra's model router takes a plain `"provider/model"` string — no SDK
@@ -22,22 +56,21 @@
  * Verify IDs against the live list before changing this:
  *   node .claude/skills/mastra/scripts/provider-registry.mjs --provider groq
  */
-export const MODEL = process.env.TESTPILOT_MODEL ?? 'groq/openai/gpt-oss-120b';
+export const MODEL = envString('TESTPILOT_MODEL', 'groq/openai/gpt-oss-120b');
 
 /**
  * The model intended for calls that must be right — ambiguous test-selection
  * decisions and calibration runs whose numbers end up published and have to
  * survive scrutiny.
  *
- * **Not currently wired to anything.** Every agent (impact, flaky, smoke)
+ * **Not currently wired to anything.** Both agents (impact and flaky)
  * hardcodes {@link MODEL}, and this constant is unread outside its own
  * definition. Dynamic per-call model tiering — routing an ambiguous decision
  * to a stronger model mid-run — is a real feature this project doesn't have
  * yet, not a bug being papered over; recorded here instead of left as a
  * silent gap between what the code claims and what it does.
  */
-export const CRITICAL_MODEL =
-  process.env.TESTPILOT_MODEL_CRITICAL ?? 'openai/gpt-5.4-mini';
+export const CRITICAL_MODEL = envString('TESTPILOT_MODEL_CRITICAL', 'openai/gpt-5.4-mini');
 
 /**
  * Below this confidence, Testpilot stops trusting its own selection and falls
@@ -47,9 +80,7 @@ export const CRITICAL_MODEL =
  * against the fixture repo, and the README publishes whatever the evidence
  * supports. Treat it as provisional until then.
  */
-export const CONFIDENCE_THRESHOLD = Number(
-  process.env.TESTPILOT_CONFIDENCE_THRESHOLD ?? 0.7,
-);
+export const CONFIDENCE_THRESHOLD = envNumber('TESTPILOT_CONFIDENCE_THRESHOLD', 0.7);
 
 /**
  * Hard ceiling on diff size, in characters.
@@ -111,7 +142,7 @@ export const FLAKY_REPEAT_CAP = 10;
  * The default sits just under Groq's free-tier 8,000 tokens/minute, which
  * is the tightest limit Testpilot is documented to run against.
  */
-export const MAX_REQUEST_TOKENS = Number(process.env.TESTPILOT_MAX_REQUEST_TOKENS ?? 7_000);
+export const MAX_REQUEST_TOKENS = envNumber('TESTPILOT_MAX_REQUEST_TOKENS', 7_000);
 
 /**
  * Tokens reserved out of {@link MAX_REQUEST_TOKENS} for everything in the
@@ -124,7 +155,7 @@ export const MAX_REQUEST_TOKENS = Number(process.env.TESTPILOT_MAX_REQUEST_TOKEN
  * roughly 3,000 tokens; this rounds up from that observation. If you change
  * the agent's instructions substantially, re-measure it.
  */
-export const REQUEST_OVERHEAD_TOKENS = Number(process.env.TESTPILOT_REQUEST_OVERHEAD_TOKENS ?? 3_200);
+export const REQUEST_OVERHEAD_TOKENS = envNumber('TESTPILOT_REQUEST_OVERHEAD_TOKENS', 3_200);
 
 /**
  * What's actually left for the payload once overhead is reserved. Floored
@@ -140,7 +171,7 @@ export const MAX_PROMPT_TOKENS = Math.max(500, MAX_REQUEST_TOKENS - REQUEST_OVER
  * each test already carries its own `reachableFrom` detail. Shrinking this
  * section buys budget far more cheaply than dropping whole tests.
  */
-export const MAX_DEPENDENTS_PER_IMPACT = Number(process.env.TESTPILOT_MAX_DEPENDENTS_PER_IMPACT ?? 25);
+export const MAX_DEPENDENTS_PER_IMPACT = envNumber('TESTPILOT_MAX_DEPENDENTS_PER_IMPACT', 25);
 
 /**
  * How many flaky-budget estimates the triage workflow runs at once.
@@ -151,7 +182,7 @@ export const MAX_DEPENDENTS_PER_IMPACT = Number(process.env.TESTPILOT_MAX_DEPEND
  * dozens of concurrent SQLite connections to one small file. A modest cap
  * keeps the step comfortably parallel without either pile-up.
  */
-export const FLAKY_ESTIMATE_CONCURRENCY = 4;
+export const FLAKY_ESTIMATE_CONCURRENCY = envNumber('TESTPILOT_FLAKY_CONCURRENCY', 4);
 
 /**
  * Fallback failure-rate prior for a test with no history of its own, in a

@@ -41,7 +41,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'   # 24, not 22: the CLI is a .ts file Node runs directly, and default type stripping only landed in 22.18
 
       - name: Run Testpilot
         uses: athul-2003/TestPilot@v0.1.0
