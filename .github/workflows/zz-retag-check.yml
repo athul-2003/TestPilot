@@ -1,0 +1,16 @@
+name: Retag check
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  consumer-path:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+      - uses: athul-2003/TestPilot@v0.1.0
+        with:
+          groq-api-key: ${{ secrets.GROQ_API_KEY }}
+          post-comment: 'false'
