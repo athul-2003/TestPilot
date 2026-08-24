@@ -50,6 +50,14 @@ export const ciAnnotateInputSchema = z.object({
   totalTestCount: z.number(),
   /** New or historically-unstable tests that received a repeat-run budget. Empty when there are none. */
   flakyBudgets: z.array(flakyBudgetEntrySchema),
+  /**
+   * Anything that went wrong or looked off during this run — a model
+   * response that omitted a test, a path it invented, or the selection call
+   * failing outright. Surfaced in the report rather than swallowed: a
+   * silently-degraded run that looks identical to a clean one is exactly how
+   * a tool like this loses trust.
+   */
+  warnings: z.array(z.string()).optional(),
 });
 
 export const ciAnnotateOutputSchema = z.object({
@@ -94,6 +102,12 @@ function renderFlakySection(budgets: ReportedFlakyBudget[]): string {
   });
 
   return `### 🎲 Flaky risk\n\n${lines.join('\n')}`;
+}
+
+/** Returns '' on a clean run, which is most of them. */
+function renderWarningsSection(warnings: string[]): string {
+  if (warnings.length === 0) return '';
+  return `### ⚠️ Warnings\n\n${warnings.map((w) => `- ${w}`).join('\n')}`;
 }
 
 function renderSignalsTable(signals: CiAnnotateInput['signals']): string {
@@ -155,6 +169,9 @@ export function renderReport(input: CiAnnotateInput): string {
 
   const flakySection = renderFlakySection(input.flakyBudgets);
   if (flakySection) sections.push(flakySection);
+
+  const warningsSection = renderWarningsSection(input.warnings ?? []);
+  if (warningsSection) sections.push(warningsSection);
 
   sections.push(renderSignalsTable(input.signals));
   sections.push(FOOTNOTE);

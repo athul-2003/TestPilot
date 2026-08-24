@@ -19,6 +19,20 @@ function baseInput(overrides: Partial<CiAnnotateInput> = {}): CiAnnotateInput {
 }
 
 describe('renderReport', () => {
+  it('renders warnings when there are any, and omits the section entirely when there are none', () => {
+    const clean = renderReport(baseInput({ totalTestCount: 3 }));
+    expect(clean).not.toContain('Warnings');
+
+    const warned = renderReport(
+      baseInput({
+        totalTestCount: 3,
+        warnings: ['Test selection failed, so every test is being run as a safety net. Cause: rate limited'],
+      }),
+    );
+    expect(warned).toContain('⚠️ Warnings');
+    expect(warned).toContain('rate limited');
+  });
+
   it('renders each bucket with its rationale and confidence', () => {
     const report = renderReport(
       baseInput({
