@@ -4,13 +4,13 @@ _Model: `openai/gpt-5.4-mini`_
 
 **Missed regressions: 0 of 6 scenarios.** This is the trust metric — it must read 0.
 
-**Estimated CI-minute reduction:** 1.8 minutes across 6 scenarios (placeholder per-test-type assumptions — see the report footnote in each run; not a measurement of real test durations).
+**Estimated CI-minute reduction:** 1.6 minutes across 6 scenarios (placeholder per-test-type assumptions — see the report footnote in each run; not a measurement of real test durations).
 
-**Selection efficiency:** 18/20 of the hand-derived "safe to skip" tests were actually skipped — the gap between this and 100% is real tests run that a perfectly-informed tool would not have needed to.
+**Selection efficiency:** 16/20 of the hand-derived "safe to skip" tests were actually skipped — the gap between this and 100% is real tests run that a perfectly-informed tool would not have needed to.
 
 | Scenario | Confidence | Fell back | Must-run | Should-run | Skip | Ideal skip achieved | Missed regression |
 |---|---|---|---|---|---|---|---|
-| 01-pure-logic-isolated | 1.00 | no | 1 | 0 | 4 | 4/4 | no |
+| 01-pure-logic-isolated | 1.00 | no | 1 | 2 | 2 | 2/4 | no |
 | 02-shared-util-bug | 1.00 | no | 1 | 2 | 2 | 2/2 | no |
 | 03-type-only | 1.00 | no | 2 | 0 | 3 | 3/5 | no |
 | 04-test-only | 1.00 | no | 1 | 0 | 4 | 4/4 | no |

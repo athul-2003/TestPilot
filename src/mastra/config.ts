@@ -99,6 +99,50 @@ export const FLAKY_TARGET_CONFIDENCE = 0.95;
 export const FLAKY_REPEAT_CAP = 10;
 
 /**
+ * The provider limit Testpilot sizes each selection request against, in
+ * tokens — set this to whatever your model tier actually allows.
+ *
+ * The selection prompt describes every test in the repo, so it grows with
+ * the suite rather than with the change: a large repo can exceed a
+ * provider's per-request or per-minute limit and fail outright. Past this
+ * figure, the least graph-reachable tests are withheld from the prompt and
+ * default to `should-run` — costing efficiency, never safety.
+ *
+ * The default sits just under Groq's free-tier 8,000 tokens/minute, which
+ * is the tightest limit Testpilot is documented to run against.
+ */
+export const MAX_REQUEST_TOKENS = Number(process.env.TESTPILOT_MAX_REQUEST_TOKENS ?? 7_000);
+
+/**
+ * Tokens reserved out of {@link MAX_REQUEST_TOKENS} for everything in the
+ * request that is not the payload: the agent's system instructions, the
+ * structured-output schema, the prompt preamble, and the model's own
+ * response — which counts against a per-minute limit too.
+ *
+ * Measured, not guessed. A 6,000-token payload produced a 9,081-token
+ * request against Groq, so the true overhead plus estimator error is
+ * roughly 3,000 tokens; this rounds up from that observation. If you change
+ * the agent's instructions substantially, re-measure it.
+ */
+export const REQUEST_OVERHEAD_TOKENS = Number(process.env.TESTPILOT_REQUEST_OVERHEAD_TOKENS ?? 3_200);
+
+/**
+ * What's actually left for the payload once overhead is reserved. Floored
+ * at a small positive number so a misconfigured overhead can never produce
+ * a zero or negative budget, which would send a prompt with no tests in it.
+ */
+export const MAX_PROMPT_TOKENS = Math.max(500, MAX_REQUEST_TOKENS - REQUEST_OVERHEAD_TOKENS);
+
+/**
+ * Cap on how many dependents each changed file lists in the prompt.
+ *
+ * One widely-imported file can have hundreds, most of them not tests, and
+ * each test already carries its own `reachableFrom` detail. Shrinking this
+ * section buys budget far more cheaply than dropping whole tests.
+ */
+export const MAX_DEPENDENTS_PER_IMPACT = Number(process.env.TESTPILOT_MAX_DEPENDENTS_PER_IMPACT ?? 25);
+
+/**
  * How many flaky-budget estimates the triage workflow runs at once.
  *
  * Each one can make a model call and opens its own short-lived connection to
