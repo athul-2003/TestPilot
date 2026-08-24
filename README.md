@@ -2,7 +2,7 @@
 
 > Launchable-style test selection, but open-source, self-hostable, explainable, and works with zero setup — built on [Mastra](https://mastra.ai).
 
-**Status:** early, but real and verified end-to-end — diff parsing, impact mapping, LLM-reasoned selection, confidence scoring with a run-everything fallback, flaky-repeat budgets, and a ground-truth eval proving **0 missed regressions** across every scenario tested. Ships as a CLI and a GitHub Action. Not yet published to npm — see [Installing](#installing).
+**Status:** early, but real and verified end-to-end — including against a real repository with a deliberately injected bug — diff parsing, impact mapping, LLM-reasoned selection, confidence scoring with a run-everything fallback, flaky-repeat budgets, and a ground-truth eval proving **0 missed regressions** across every scenario tested. Ships as a CLI and a GitHub Action. Not yet published to npm — see [Installing](#installing).
 
 ---
 
@@ -38,17 +38,26 @@ Launchable, Sealights, and Datadog Test Optimization are real, and they work. Te
 
 Every number below comes from [`fixtures/sample-repo-scenarios/metrics-report.md`](fixtures/sample-repo-scenarios/metrics-report.md), produced by `npm run eval` against a small, real Vitest project with a known dependency structure — reproducible by anyone who clones the repo and runs it themselves.
 
-| Metric | Result |
-|---|---|
-| **Missed regressions** (the trust metric) | **0 of 6 scenarios** — including one seeding a real, deliberate bug that genuinely broke 3 tests |
-| Confidence calibration | 6/6 scenarios matched their expected confident-vs-fallback outcome |
-| Cost per run *(on the 6-scenario fixture repo)* | ~1,600–1,900 tokens, ~2.1–2.5 seconds on Groq |
+| Metric | `openai/gpt-5.4-mini` | `groq/openai/gpt-oss-120b` |
+|---|---|---|
+| **Missed regressions** (the trust metric) | **0 of 6** | **0 of 6** |
+| Confidence calibration | 6/6 correct | 6/6 correct |
+| Selection efficiency (safely-skippable tests actually skipped) | **18 of 20** | 2 of 20 |
 
 One of those six scenarios seeds an actual off-by-one bug in a shared utility, breaking three tests transitively — verified by really running the suite, not by asserting what should happen. Testpilot ran all three affected tests; nothing was skipped that shouldn't have been.
 
-**Those cost and latency numbers are from that fixture repo, and they do not generalize.** The prompt carries one entry per test in the suite, so both grow with suite size: a run against this repo's own 29 test files took ~37 seconds, and a 46-file diff produced a request large enough to exceed Groq's free-tier per-minute token limit outright. Testpilot handles that by falling back to running everything and saying so in the report — it never fails the CI step — but "a couple of seconds" is a small-suite figure, not a promise.
+**The safety property holds on both models. The savings do not.** This is the single most important thing to know before adopting Testpilot: a weaker model is not less safe, it is just useless — it marks nearly everything `should-run`, and you save nothing. Model choice is the difference between a working tool and an expensive no-op, so pick accordingly and re-run `npm run eval` against your own repo before trusting any number here.
 
-**What the eval also found, and didn't hide:** selection efficiency (how many of the safely-skippable tests actually got skipped) was 2 of 20 and 4 of 20 across two separate real runs. The safety property held in both — but Testpilot currently trades away much of its CI-minute-saving upside for extra caution, favoring `should-run` over `skip` more often than a maximally-efficient tool would. That's the honest state of it right now, not something smoothed over for this README. A second finding, about confidence scoring on config-only changes, is recorded under [Known limitations](#known-limitations).
+### Verified on a real repository, not just the fixture
+
+The fixture repo has five test files. To check that the numbers survive contact with something real, the same evaluation was run against Testpilot's own repository (29 test files) using its real `git merge-base` path:
+
+- A genuine bug was injected into a source file (`Math.max` → `Math.min` in the flaky-budget floor). Running the suite confirmed it broke **two** test files — one directly, one transitively through the import chain.
+- Testpilot flagged **both** — the direct one `must-run`, the transitive one `should-run` at depth 2 with a rationale naming the dependency — while skipping 26 of 29 tests. **0 missed regressions**, on a real repo, with a real bug, ground truth measured by actually running Vitest.
+
+**Cost and latency do not generalize from the fixture.** The prompt carries one entry per test, so both grow with suite size: ~1,600–1,900 tokens and ~2.1–2.5s on the 5-test fixture, but ~16–40s on this repo's 29 tests, and a 46-file diff produced a request large enough to blow past Groq's free-tier per-minute token cap outright. When that happens Testpilot runs everything and says why — it never fails the CI step — but "a couple of seconds" is a small-suite figure, not a promise.
+
+A further finding, about confidence scoring on config-only changes, is under [Known limitations](#known-limitations).
 
 ## Requirements
 
@@ -106,6 +115,8 @@ Testpilot's agents run on one model, a plain `"provider/model"` string:
 
 Point it at whatever you like — a different provider, or a local model. Swapping is a one-line change, which is what makes "self-hostable" a real claim rather than a slogan.
 
+> **This choice decides whether Testpilot saves you anything.** The default is a fast, free-tier-friendly model, which makes it a good way to *try* Testpilot — but as the table in [Proof, not a pitch](#proof-not-a-pitch) shows, it skipped only 2 of 20 safely-skippable tests, against 18 of 20 for `openai/gpt-5.4-mini`. Both were equally safe; only one actually saved CI time. **For real use, point `TESTPILOT_MODEL` at a stronger reasoning model** and verify with `npm run eval` on your own repo.
+
 `TESTPILOT_MODEL_CRITICAL` also exists in `src/mastra/config.ts`, reserved for a future dynamic-tiering feature (routing genuinely ambiguous selection calls to a stronger model mid-run) — it's not wired into any agent yet, disclosed here rather than left as a gap between what's documented and what runs.
 
 ## Privacy
@@ -116,7 +127,7 @@ Be clear-eyed about this: **by default, your diff and source metadata are sent t
 
 Recorded here rather than left for someone to discover the hard way:
 
-- **`should-run` is used far more often than `skip`.** See "Proof, not a pitch" above — the safety property is solid, the efficiency isn't fully there yet.
+- **Selection efficiency depends heavily on the model.** On the default free-tier model, `should-run` swamps `skip` and the savings approach zero; on a stronger model the same eval skips 18 of 20. Safety held in every run either way — see "Proof, not a pitch" above.
 - **The prompt grows with the size of your test suite**, because every test in the inventory is described to the model. On a large suite, or a large diff, the request can exceed a provider's per-minute token limit — Groq's free tier caps at 8,000. When that happens Testpilot runs the full suite and reports why, rather than failing; but a big repo will want a provider tier sized for it.
 - **Test discovery is filename-based (`*.test.ts` / `*.spec.ts`) and does not read your Vitest `include`/`exclude` config.** A file your test runner is configured to ignore can still show up in the inventory and get classified. It costs prompt space and noise, never correctness.
 - **A change touching zero TypeScript files (e.g. `package.json`) currently scores maximum confidence**, despite Testpilot having no real insight into what it might do. The confidence formula treats "nothing to search" as full certainty rather than a blind spot. Recorded as a candidate refinement, not yet implemented.
