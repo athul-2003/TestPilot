@@ -13,7 +13,7 @@ import { SCENARIOS, type ScenarioGroundTruth } from './scenario-ground-truth.ts'
  * Runs every seeded scenario through the real `triageWorkflow`, cross-
  * references each one's skip list against the **real, empirically measured**
  * test outcomes (not a hand-written prediction), and produces the metrics
- * table Phase 6 exists to prove.
+ * table the regression guard exists to prove.
  *
  * This is the piece that makes the regression-guard rigorous rather than
  * self-graded: `regression-guard.ts`'s scorer only ever sees data this file
@@ -28,19 +28,37 @@ const SAMPLE_REPO_DIR = path.join(PROJECT_ROOT, 'fixtures', 'sample-repo');
 const SCENARIOS_DIR = path.join(PROJECT_ROOT, 'fixtures', 'sample-repo-scenarios');
 const VITEST_BIN = path.join(PROJECT_ROOT, 'node_modules', 'vitest', 'vitest.mjs');
 
-/** Strips the repo root off an absolute path and normalizes to forward slashes, regardless of OS. */
+/**
+ * Strips the repo root off an absolute path and normalizes to forward
+ * slashes, regardless of OS.
+ *
+ * Both paths are resolved through `fs.realpathSync` before comparing —
+ * a plain `startsWith` on the raw strings silently breaks wherever the OS
+ * can hand back two spellings of the same path: `os.tmpdir()` returning a
+ * symlink macOS itself resolves (`/var/folders/...` vs `/private/var/folders/...`),
+ * or Windows drive-letter casing. A silent break here doesn't crash — it
+ * just makes `actualFailedTestFiles` full of paths that never match
+ * `triage.skip`'s repo-relative entries, so `regressionGuardScorer` reports
+ * zero missed regressions even when one genuinely happened. That's the one
+ * failure mode this function exists to prevent, so a path that still
+ * doesn't resolve inside `repoRoot` after realpath throws instead of
+ * silently returning something that won't match.
+ */
 function toRepoRelativePosix(repoRoot: string, absPath: string): string {
-  const normalizedRoot = repoRoot.split(path.sep).join('/');
-  const normalizedAbs = absPath.split(path.sep).join('/');
-  const rel = normalizedAbs.startsWith(normalizedRoot) ? normalizedAbs.slice(normalizedRoot.length) : normalizedAbs;
-  return rel.replace(/^\/+/, '');
+  const resolvedRoot = fs.realpathSync(repoRoot);
+  const resolvedAbs = fs.realpathSync(absPath);
+  const rel = path.relative(resolvedRoot, resolvedAbs);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error(`Vitest reported a test file outside the scenario's repo root: ${absPath} (root: ${repoRoot})`);
+  }
+  return rel.split(path.sep).join('/');
 }
 
 /**
  * Materializes one scenario on disk: a fresh copy of the baseline fixture,
  * with the scenario's `after/` files overlaid on top at matching relative
- * paths — the same "diff describes a real checkout" state every other
- * phase's live verification has relied on since Phase 4.
+ * paths — the same "diff describes a real checkout" state every live
+ * verification of this pipeline has relied on.
  */
 function applyScenario(scenario: ScenarioGroundTruth): string {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `testpilot-eval-${scenario.name}-`));
@@ -147,7 +165,7 @@ export async function runScenario(scenario: ScenarioGroundTruth): Promise<Scenar
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {
-      // Confirmed Windows limitation (Phase 5): @libsql/client's local
+      // Confirmed Windows limitation: @libsql/client's local
       // driver — touched here because every scenario's flaky-budget step
       // opens the scenario's history database — doesn't release its
       // memory-mapped file handle until process exit. Best-effort only.
@@ -214,7 +232,7 @@ export function renderMetricsReport(results: ScenarioRunResult[]): string {
     '## Flaky-flag precision',
     '',
     'Not measured by this fixture — none of the six scenarios seeds a new or historically-unstable test ' +
-      '(that would duplicate Phase 5\'s own live verification, which already exercised the mechanism directly: ' +
+      '(that would duplicate the flaky mechanism\'s own live verification, which already exercised it directly: ' +
       'a real Groq call correctly flagged a genuine `setTimeout`-based flaky pattern with a rationale naming the exact line).',
   ];
 

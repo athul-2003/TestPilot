@@ -23,7 +23,7 @@ jobs:
       - run: npm run build
 
   regression-guard:
-    name: Regression-guard eval (Phase 6)
+    name: Regression-guard eval
     runs-on: ubuntu-latest
     needs: quality
     env:

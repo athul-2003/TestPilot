@@ -11,8 +11,8 @@ import { confidenceSignalsSchema } from '../workflows/confidence.ts';
  * into prose, because a JSON blob of buckets and confidence scores is not
  * something a developer skims in thirty seconds on a pull request.
  *
- * The worksheet's own warning governs the whole design here: "estimated
- * minutes saved" is the number people screenshot, so every number in this
+ * One rule governs the whole design here: "estimated minutes
+ * saved" is the number people screenshot, so every number in this
  * report states the assumption behind it in the same sentence, not in a
  * separate document nobody reads before sharing the screenshot.
  */
@@ -48,7 +48,7 @@ export const ciAnnotateInputSchema = z.object({
   /** Empty when `fellBackToRunAll` is true — there's no per-test rationale for "we ran everything". */
   selections: z.array(reportedSelectionSchema),
   totalTestCount: z.number(),
-  /** New or historically-unstable tests that received a repeat-run budget (decision D4). Empty when there are none. */
+  /** New or historically-unstable tests that received a repeat-run budget. Empty when there are none. */
   flakyBudgets: z.array(flakyBudgetEntrySchema),
 });
 
@@ -116,7 +116,7 @@ const FOOTNOTE =
   '*Estimated minutes saved assumes 0.1 min/unit test, 0.5 min/integration test, 2 min/e2e test — ' +
   'placeholders until real historical run-time data is tracked, not measurements. ' +
   'Confidence is a weighted score over observable signals — never invented by the model — ' +
-  "and this run's threshold is a starting value pending calibration (Phase 6). Flaky repeat-run budgets " +
+  "and this run's threshold is a starting value pending further calibration. Flaky repeat-run budgets " +
   'come from a formula over observed failure rate, not from a model guess — structural flags only ever ' +
   'raise the prior that formula runs on.*';
 

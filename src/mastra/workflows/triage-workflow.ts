@@ -3,12 +3,12 @@ import { z } from 'zod';
 
 import { flakyAgent, computeFlakyBudget } from '../agents/flaky-agent.ts';
 import { impactAgent, correlateTestsWithImpact, runSelection, selectedTestSchema, type PromptPayload } from '../agents/impact-agent.ts';
-import { ASSUMED_MINUTES_PER_TEST, CONFIDENCE_THRESHOLD, MAX_IMPACT_DEPTH } from '../config.ts';
+import { ASSUMED_MINUTES_PER_TEST, CONFIDENCE_THRESHOLD, FLAKY_ESTIMATE_CONCURRENCY, MAX_IMPACT_DEPTH } from '../config.ts';
 import { ciAnnotateInputSchema, flakyBudgetEntrySchema, renderReport } from '../tools/ci-annotate-tool.ts';
 import { gitDiffOutputSchema, parseUnifiedDiff, reconstructAddedFileSource } from '../tools/git-diff-tool.ts';
 import { buildImportGraph, computeImpactedFiles, importGraphOutputSchema } from '../tools/import-graph-tool.ts';
 import { buildTestInventory, testFileSchema } from '../tools/test-inventory-tool.ts';
-import { getTestFailureRate } from '../tools/test-history-tool.ts';
+import { getTestFailureRate, type TestHistoryStats } from '../tools/test-history-tool.ts';
 import { computeConfidence, confidenceSignalsSchema } from './confidence.ts';
 
 /**
@@ -49,7 +49,7 @@ const finalReportSchema = z.object({
   confidence: z.number(),
   estimatedMinutesSaved: z.number(),
   fellBackToRunAll: z.boolean(),
-  /** testPath -> repeat-run budget (decision D4), for every new or historically-unstable test that got one. */
+  /** testPath -> repeat-run budget, for every new or historically-unstable test that got one. */
   flakyBudget: z.record(z.string(), z.number()),
   report: z.string().describe('The rendered Markdown PR comment.'),
 });
@@ -73,7 +73,14 @@ const buildImpactStep = createStep({
   outputSchema: importGraphOutputSchema,
   execute: async ({ inputData, getInitData }) => {
     const init = getInitData<WorkflowInput>();
-    const changedTsFiles = inputData.files.filter((f) => f.isTypeScript && !f.isBinary).map((f) => f.path);
+    // `.d.ts` files are declaration-only and excluded from the import graph
+    // itself (see import-graph-tool.ts's walkTypeScriptFiles) — asking the
+    // graph about one always comes back `found: false`, which reads as
+    // "deleted" and wrongly tanks confidence for a file that just isn't
+    // graph-tracked. Match the graph's own scope here.
+    const changedTsFiles = inputData.files
+      .filter((f) => f.isTypeScript && !f.isBinary && !f.path.endsWith('.d.ts'))
+      .map((f) => f.path);
 
     const graph = buildImportGraph(init.repoRoot);
     const impacted =
@@ -133,7 +140,7 @@ const selectTestsStep = createStep({
   },
 });
 
-// --- Step 4: estimate flaky budgets (D4) --------------------------------
+// --- Step 4: estimate flaky budgets ------------------------------------
 //
 // Runs before confidence scoring, matching the original pipeline sketch —
 // its output has to be available to *either* branch of the confidence gate
@@ -143,6 +150,39 @@ const selectTestsStep = createStep({
 const estimateFlakyOutputSchema = z.object({
   flakyBudgets: z.array(flakyBudgetEntrySchema),
 });
+
+/**
+ * Runs `work` over every item with at most `limit` in flight at once,
+ * returning one settled result per item, in input order.
+ *
+ * `Promise.allSettled` alone gives the per-item error isolation but no
+ * back-pressure: it starts everything simultaneously. This keeps both
+ * properties — one failure can't sink its neighbours, and the fan-out stays
+ * bounded.
+ */
+async function mapSettledWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  work: (item: T) => Promise<R>,
+): Promise<Array<PromiseSettledResult<R>>> {
+  const results = new Array<PromiseSettledResult<R>>(items.length);
+  let cursor = 0;
+
+  async function runner(): Promise<void> {
+    let index = cursor++;
+    while (index < items.length) {
+      try {
+        results[index] = { status: 'fulfilled', value: await work(items[index]!) };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason };
+      }
+      index = cursor++;
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => runner()));
+  return results;
+}
 
 const estimateFlakyStep = createStep({
   id: 'estimate-flaky',
@@ -158,37 +198,47 @@ const estimateFlakyStep = createStep({
     const runnablePaths = new Set(inputData.selections.filter((s) => s.bucket !== 'skip').map((s) => s.path));
     const candidates = inputData.testInventory.filter((t) => runnablePaths.has(t.path));
 
-    const budgets = await Promise.all(
-      candidates.map(async (test) => {
-        const addedFile = addedTsFilesByPath.get(test.path);
-        const isNew = addedFile !== undefined;
+    // Settled and bounded, not `Promise.all`: a flaky-budget estimate is a
+    // nice-to-have on top of the actual test-selection decision, never a
+    // reason to fail the whole run. A transient failure on one test's
+    // flaky-agent call (rate limit, network blip) must not take down every
+    // other test's budget — or the workflow itself — with it. Matches
+    // cli.ts's own stated principle: Testpilot reports, it does not
+    // hard-fail on its own reasoning.
+    const settled = await mapSettledWithConcurrency(candidates, FLAKY_ESTIMATE_CONCURRENCY, async (test) => {
+      const addedFile = addedTsFilesByPath.get(test.path);
+      const isNew = addedFile !== undefined;
 
-        if (!isNew) {
-          // Most tests in most diffs are neither new nor unstable — this
-          // cheap history check is what keeps a large, healthy test suite
-          // from paying for a flaky-agent call on every single test it runs.
-          const stats = await getTestFailureRate(init.repoRoot, test.path);
-          const isUnstable = stats !== undefined && stats.failCount > 0 && stats.failCount < stats.totalRuns;
-          if (!isUnstable) return undefined;
-        }
+      let knownStats: TestHistoryStats | undefined;
+      if (!isNew) {
+        // Most tests in most diffs are neither new nor unstable — this
+        // cheap history check is what keeps a large, healthy test suite
+        // from paying for a flaky-agent call on every single test it runs.
+        const stats = await getTestFailureRate(init.repoRoot, test.path);
+        const isUnstable = stats !== undefined && stats.failCount > 0 && stats.failCount < stats.totalRuns;
+        if (!isUnstable) return undefined;
+        // Handed to computeFlakyBudget below so it doesn't re-run the query
+        // that just produced this.
+        knownStats = stats;
+      }
 
-        const sourceText = addedFile ? reconstructAddedFileSource(addedFile) : undefined;
-        const result = await computeFlakyBudget(init.repoRoot, test.path, sourceText, flakyAgent);
-        return {
-          testPath: result.testPath,
-          budget: result.budget,
-          priorSource: result.priorSource,
-          riskLevel: result.riskLevel,
-          structuralFlags: result.structuralFlags,
-        };
-      }),
-    );
+      const sourceText = addedFile ? reconstructAddedFileSource(addedFile) : undefined;
+      const result = await computeFlakyBudget(init.repoRoot, test.path, sourceText, flakyAgent, knownStats);
+      return {
+        testPath: result.testPath,
+        budget: result.budget,
+        priorSource: result.priorSource,
+        riskLevel: result.riskLevel,
+        structuralFlags: result.structuralFlags,
+      };
+    });
 
+    const budgets = settled.map((s) => (s.status === 'fulfilled' ? s.value : undefined));
     return { flakyBudgets: budgets.filter((b) => b !== undefined) };
   },
 });
 
-// --- Step 5: score confidence (D3) --------------------------------------
+// --- Step 5: score confidence -------------------------------------------
 
 const scoreConfidenceOutputSchema = z.object({
   confidence: z.number(),

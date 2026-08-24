@@ -14,7 +14,7 @@ import { parseTypeScriptFile } from './ast-parse-tool.ts';
  * directly and transitively — by building a **reverse dependency graph**: for
  * every file in the repo, which other files import it. A changed file's
  * dependents are exactly the tests most likely to be affected, which is the
- * question Phase 3's test selection ultimately needs answered.
+ * question test selection ultimately needs answered.
  *
  * Building that graph means resolving every import specifier in every file to
  * an actual path on disk — relative imports, `tsconfig` path aliases, and
@@ -33,7 +33,7 @@ const dependentSchema = z.object({
     .describe(
       'True if a barrel file sits anywhere on the path from the changed file to this dependent. A barrel ' +
         're-exports rather than uses its imports directly, so relationships passing through one are a weaker ' +
-        'signal than a direct import — Phase 3/4 should weigh these down.',
+        'signal than a direct import — test selection should weigh these down.',
     ),
 });
 
@@ -239,13 +239,23 @@ export function resolveModuleSpecifier(
 
 // --- On-disk cache ---------------------------------------------------------
 
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 
 interface CacheFileEntry {
   mtimeMs: number;
   hash: string;
   isBarrel: boolean;
-  dependsOn: string[];
+  /**
+   * Raw, unresolved import/re-export specifiers extracted by the parser —
+   * deliberately NOT the resolved `dependsOn` paths. A specifier that
+   * couldn't resolve when this file was last parsed (its target didn't
+   * exist yet) may resolve on a later run where that target has since been
+   * added, without this file itself changing at all. Caching the resolved
+   * paths would freeze that miss forever; caching the specifiers lets every
+   * run re-resolve against the *current* file set for the cost of a Set
+   * lookup, no re-parse required.
+   */
+  specifiers: string[];
 }
 
 interface GraphCacheFile {
@@ -327,28 +337,34 @@ export function buildImportGraph(repoRoot: string, cacheDir?: string): ImportGra
         entry = { ...cached, mtimeMs: stat.mtimeMs };
       } else {
         const parsed = parseTypeScriptFile(relFile, content);
-        const specifiers = [
-          ...parsed.imports.map((i) => i.specifier),
-          ...parsed.exports.filter((e) => e.isReExport && e.reExportSource).map((e) => e.reExportSource!),
-        ];
         // A re-export edge is a dependency like any other: the re-exporting
         // file needs the target module's content to exist. Treating them
         // identically to normal imports here — rather than special-casing
         // barrel files into "counts as depth 1 for everything it re-exports"
         // — is what keeps a barrel's fan-out from silently inflating the
         // blast radius. It shows up honestly as one extra hop instead.
-        const dependsOn = new Set<string>();
-        for (const specifier of specifiers) {
-          const resolved = resolveModuleSpecifier(relFile, specifier, alias, existingFiles);
-          if (resolved) dependsOn.add(resolved);
-        }
-        entry = { mtimeMs: stat.mtimeMs, hash, isBarrel: parsed.isBarrel, dependsOn: [...dependsOn] };
+        const specifiers = [
+          ...parsed.imports.map((i) => i.specifier),
+          ...parsed.exports.filter((e) => e.isReExport && e.reExportSource).map((e) => e.reExportSource!),
+        ];
+        entry = { mtimeMs: stat.mtimeMs, hash, isBarrel: parsed.isBarrel, specifiers };
         filesParsed++;
       }
     }
 
     nextCacheFiles[relFile] = entry;
-    forward.set(relFile, entry.dependsOn);
+
+    // Re-resolve every run, cache hit or not: a specifier that failed to
+    // resolve when this file was last parsed may resolve now if its target
+    // was added elsewhere since, without this file changing at all. This is
+    // a Set lookup per specifier, not a re-parse — cheap enough to always do.
+    const dependsOn = new Set<string>();
+    for (const specifier of entry.specifiers) {
+      const resolved = resolveModuleSpecifier(relFile, specifier, alias, existingFiles);
+      if (resolved) dependsOn.add(resolved);
+    }
+
+    forward.set(relFile, [...dependsOn]);
     isBarrelMap.set(relFile, entry.isBarrel);
   }
 

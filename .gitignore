@@ -56,3 +56,9 @@ desktop.ini
 .turbo/
 .eslintcache
 .testpilot-cache/
+
+# Internal build/ideation notes — kept locally, not published.
+# The repo presents the product; how it was designed and built stays private.
+worksheet.md
+PROJECT_IDEA_TESTPILOT.md
+.claude/

@@ -1,15 +1,15 @@
 import { FLAKY_REPEAT_CAP, FLAKY_TARGET_CONFIDENCE } from '../config.ts';
 
 /**
- * Decision **D4**: how many times a new or historically-unstable test must
+ * How many times a new or historically-unstable test must
  * be re-run before an all-green streak means something, rather than being a
  * lucky roll. Pure arithmetic — the number a repeat-run budget is built on
  * must come from a formula anyone can check, never from an LLM asked "how
  * many times should I run this?", which will produce a confident round
  * number with no basis whatsoever.
  *
- * **A correction, made while implementing this phase:** the worksheet's
- * originally-recorded D4 decision stated `n = ceil(log(1-c) / log(p))` with
+ * **A correction, made during implementation:** this formula was originally
+ * recorded as `n = ceil(log(1-c) / log(p))` with
  * `p` as the test's observed per-run failure rate. That formula is wrong for
  * that `p`. Deriving it from first principles: if a test fails independently
  * with probability `p` on any given run, the chance that `n` repeats are
@@ -50,7 +50,7 @@ export function computeRepeatBudget(
 export type StructuralRiskLevel = 'low' | 'medium' | 'high';
 
 /**
- * Minimum repeat-run count a structural risk assessment (Phase 5's
+ * Minimum repeat-run count a structural risk assessment (the
  * flaky-agent) imposes, regardless of what the statistical formula alone
  * would say. **Not** implemented as raising the probability fed into
  * {@link computeRepeatBudget} — an earlier version of this file did exactly
@@ -64,7 +64,7 @@ export type StructuralRiskLevel = 'low' | 'medium' | 'high';
  * toward more scrutiny, never lower it.
  *
  * These floor values are a small, reasoned starting point — same
- * provisional status as the confidence threshold, subject to Phase 6
+ * provisional status as the confidence threshold, subject to real
  * evidence. `low` imposes no floor at all: a single defensible pattern
  * shouldn't override what the actual statistics say.
  */
@@ -76,8 +76,8 @@ const STRUCTURAL_RISK_FLOOR: Record<StructuralRiskLevel, number> = {
 
 /**
  * Combines a statistically-derived repeat budget with a structural risk
- * floor. Per the worksheet's explicit rule, the LLM never sets the count
- * directly — this only ever raises what the formula already computed.
+ * floor. By explicit design, the LLM never sets the count directly —
+ * this only ever raises what the formula already computed.
  */
 export function applyStructuralFloor(statisticalBudget: number, structuralRisk: StructuralRiskLevel): number {
   return Math.max(statisticalBudget, STRUCTURAL_RISK_FLOOR[structuralRisk]);

@@ -1,14 +1,29 @@
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { buildTestInventory, classifyTestFile } from './test-inventory-tool.ts';
 
 const fixtureRoot = fileURLToPath(new URL('../../../fixtures/test-inventory/', import.meta.url));
 
+// A fresh cache directory per test keeps runs hermetic — nothing here should
+// depend on, or leave behind, another test's cached parses.
+let cacheDir: string;
+
+beforeEach(() => {
+  cacheDir = mkdtempSync(path.join(tmpdir(), 'testpilot-inventory-'));
+});
+
+afterEach(() => {
+  rmSync(cacheDir, { recursive: true, force: true });
+});
+
 describe('buildTestInventory, against the fixture tree', () => {
   it('finds every test file and none of the plain source files', () => {
-    const result = buildTestInventory(fixtureRoot);
+    const result = buildTestInventory(fixtureRoot, cacheDir);
     const paths = result.tests.map((t) => t.path).sort();
 
     expect(paths).toEqual([
@@ -24,13 +39,13 @@ describe('buildTestInventory, against the fixture tree', () => {
   });
 
   it('classifies a plain test as unit by default', () => {
-    const result = buildTestInventory(fixtureRoot);
+    const result = buildTestInventory(fixtureRoot, cacheDir);
     const math = result.tests.find((t) => t.path === 'src/math.test.ts')!;
     expect(math).toMatchObject({ testType: 'unit', classifiedBy: 'default' });
   });
 
   it('classifies by filename marker before ever looking at imports', () => {
-    const result = buildTestInventory(fixtureRoot);
+    const result = buildTestInventory(fixtureRoot, cacheDir);
 
     const e2e = result.tests.find((t) => t.path === 'src/checkout.e2e.test.ts')!;
     expect(e2e).toMatchObject({ testType: 'e2e', classifiedBy: 'path' });
@@ -40,7 +55,7 @@ describe('buildTestInventory, against the fixture tree', () => {
   });
 
   it('falls back to import-based classification when the path gives no signal', () => {
-    const result = buildTestInventory(fixtureRoot);
+    const result = buildTestInventory(fixtureRoot, cacheDir);
 
     // Neither filename contains "e2e" or "integration" — only the imports say what these are.
     const e2e = result.tests.find((t) => t.path === 'src/browser-flow.test.ts')!;
@@ -51,7 +66,7 @@ describe('buildTestInventory, against the fixture tree', () => {
   });
 
   it('extracts nested and wrapped test titles in source order', () => {
-    const result = buildTestInventory(fixtureRoot);
+    const result = buildTestInventory(fixtureRoot, cacheDir);
     const nested = result.tests.find((t) => t.path === 'src/nested-titles.test.ts')!;
 
     expect(nested.testTitles).toEqual([
@@ -62,6 +77,36 @@ describe('buildTestInventory, against the fixture tree', () => {
       'table case %i', // describe.each([...])(...)
       'handles the case',
     ]);
+  });
+
+  it('reuses the on-disk cache on a second run without re-parsing', () => {
+    const first = buildTestInventory(fixtureRoot, cacheDir);
+    expect(first.filesParsed).toBe(first.tests.length); // cold cache: every test file freshly parsed
+
+    const second = buildTestInventory(fixtureRoot, cacheDir);
+    expect(second.filesParsed).toBe(0); // warm cache: nothing needed re-parsing
+    expect(second.tests).toEqual(first.tests);
+  });
+
+  it('re-parses a test file whose contents actually changed', () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'testpilot-inventory-repo-'));
+    try {
+      const testFile = path.join(repoRoot, 'src', 'sample.test.ts');
+      mkdirSync(path.dirname(testFile), { recursive: true });
+      writeFileSync(testFile, "import { describe, it } from 'vitest';\ndescribe('before', () => { it('a', () => {}); });\n");
+
+      const first = buildTestInventory(repoRoot, cacheDir);
+      expect(first.filesParsed).toBe(1);
+      expect(first.tests[0]!.testTitles).toEqual(['before', 'a']);
+
+      writeFileSync(testFile, "import { describe, it } from 'vitest';\ndescribe('after', () => { it('b', () => {}); });\n");
+
+      const second = buildTestInventory(repoRoot, cacheDir);
+      expect(second.filesParsed).toBe(1); // genuinely changed — the cache must not be trusted
+      expect(second.tests[0]!.testTitles).toEqual(['after', 'b']);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
   });
 });
 

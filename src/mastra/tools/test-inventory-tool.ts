@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -11,7 +12,7 @@ import { walkTypeScriptFiles } from './import-graph-tool.ts';
 
 /**
  * Finds every test file in a repo and tags each as `unit`, `integration`, or
- * `e2e`. The impact agent (Phase 3's other half) needs this bucket before it
+ * `e2e`. The impact agent needs this bucket before it
  * can reason sensibly: a unit test one hop from a changed file is a strong
  * `must-run` signal, but an e2e test the same one hop away is expensive
  * enough that the agent should think harder before including it.
@@ -41,6 +42,9 @@ export const testInventoryInputSchema = z.object({
 export const testInventoryOutputSchema = z.object({
   tests: z.array(testFileSchema),
   filesScanned: z.number().describe('Total .ts/.tsx files walked (test files are a subset of this).'),
+  filesParsed: z
+    .number()
+    .describe('Subset of the test files that were freshly parsed rather than served from the on-disk cache.'),
 });
 
 export type TestType = z.infer<typeof testTypeSchema>;
@@ -143,33 +147,113 @@ function extractTestTitles(sourceText: string, filePath: string): string[] {
   return titles;
 }
 
+// --- On-disk cache ---------------------------------------------------------
+//
+// Classifying a test file means reading it and parsing it twice — once for
+// its imports, once for its describe/it titles. Nothing about that result
+// changes while the file doesn't, so it's cached on disk exactly the way
+// import-graph-tool.ts caches its parses: mtime first, content hash second.
+// Without this, every triage run re-parsed every test file in the repo from
+// scratch, even though the import graph running moments earlier in the same
+// workflow had already cached its own parse of those same files.
+
+const CACHE_VERSION = 1;
+
+interface CacheFileEntry {
+  mtimeMs: number;
+  hash: string;
+  testType: TestType;
+  classifiedBy: TestFileInfo['classifiedBy'];
+  testTitles: string[];
+}
+
+interface InventoryCacheFile {
+  version: number;
+  files: Record<string, CacheFileEntry>;
+}
+
+function loadCache(cachePath: string): InventoryCacheFile {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(cachePath, 'utf8')) as InventoryCacheFile;
+    if (parsed.version !== CACHE_VERSION) return { version: CACHE_VERSION, files: {} };
+    return parsed;
+  } catch {
+    return { version: CACHE_VERSION, files: {} }; // missing, unreadable, or corrupt — rebuild from scratch
+  }
+}
+
+function saveCache(cachePath: string, cache: InventoryCacheFile): void {
+  fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+  fs.writeFileSync(cachePath, JSON.stringify(cache, null, 2), 'utf8');
+}
+
+function hashContent(content: string): string {
+  return createHash('sha1').update(content).digest('hex');
+}
+
 // --- Discovery -----------------------------------------------------------
 
 /**
- * Walks the repo, finds every test file, and classifies each.
+ * Walks the repo, finds every test file, and classifies each — reading from
+ * and writing back to an on-disk cache so an unchanged test file isn't
+ * re-parsed on the next run.
  *
  * Exported separately from the Mastra tool so it can be unit tested
- * directly, the same pattern used throughout this codebase.
+ * directly, the same pattern used throughout this codebase. `cacheDir`
+ * overrides where the cache lives, mainly so tests stay isolated from each
+ * other — the same escape hatch `buildImportGraph` takes.
  */
-export function buildTestInventory(repoRoot: string): TestInventoryResult {
+export function buildTestInventory(repoRoot: string, cacheDir?: string): TestInventoryResult {
+  const cachePath = path.join(cacheDir ?? path.join(repoRoot, TESTPILOT_CACHE_DIRNAME), 'test-inventory.json');
+  const cache = loadCache(cachePath);
+
   const allFiles = walkTypeScriptFiles(repoRoot, TESTPILOT_CACHE_DIRNAME);
   const testFiles = allFiles.filter((f) => TEST_FILE_RE.test(f));
 
+  const nextCacheFiles: Record<string, CacheFileEntry> = {};
+  let filesParsed = 0;
+
   const tests: TestFileInfo[] = testFiles.map((relFile) => {
     const absFile = path.join(repoRoot, ...relFile.split('/'));
-    const content = fs.readFileSync(absFile, 'utf8');
+    const stat = fs.statSync(absFile);
+    const cached = cache.files[relFile];
 
-    const { imports } = parseTypeScriptFile(relFile, content);
-    const { testType, classifiedBy } = classifyTestFile(
-      relFile,
-      imports.map((i) => i.specifier),
-    );
-    const testTitles = extractTestTitles(content, relFile);
+    let entry: CacheFileEntry;
 
-    return { path: relFile, testType, classifiedBy, testTitles };
+    if (cached && cached.mtimeMs === stat.mtimeMs) {
+      entry = cached;
+    } else {
+      const content = fs.readFileSync(absFile, 'utf8');
+      const hash = hashContent(content);
+
+      if (cached && cached.hash === hash) {
+        // Touched but not actually changed — a fresh `git checkout` does this
+        // to every file. Reuse the parse, record the new mtime.
+        entry = { ...cached, mtimeMs: stat.mtimeMs };
+      } else {
+        const { imports } = parseTypeScriptFile(relFile, content);
+        const { testType, classifiedBy } = classifyTestFile(
+          relFile,
+          imports.map((i) => i.specifier),
+        );
+        entry = {
+          mtimeMs: stat.mtimeMs,
+          hash,
+          testType,
+          classifiedBy,
+          testTitles: extractTestTitles(content, relFile),
+        };
+        filesParsed++;
+      }
+    }
+
+    nextCacheFiles[relFile] = entry;
+    return { path: relFile, testType: entry.testType, classifiedBy: entry.classifiedBy, testTitles: entry.testTitles };
   });
 
-  return { tests, filesScanned: allFiles.length };
+  saveCache(cachePath, { version: CACHE_VERSION, files: nextCacheFiles });
+
+  return { tests, filesScanned: allFiles.length, filesParsed };
 }
 
 export const testInventoryTool = createTool({

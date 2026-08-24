@@ -11,7 +11,7 @@ export default tseslint.config(
       // by `create-mastra`, not by hand. Linting it would mean maintaining
       // someone else's code style.
       '.claude/**',
-      // Test *data*, not source. Phase 6's fixture repo is deliberately full
+      // Test *data*, not source. The fixture repo is deliberately full
       // of code with known problems — that is the point of it.
       'fixtures/sample-repo/**',
     ],

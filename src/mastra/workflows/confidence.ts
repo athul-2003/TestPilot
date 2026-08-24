@@ -5,7 +5,7 @@ import type { ImpactedEntry } from '../tools/import-graph-tool.ts';
 import { MAX_DIFF_CHARS } from '../config.ts';
 
 /**
- * The confidence score (decision **D3**) — how much Testpilot should trust
+ * The confidence score — how much Testpilot should trust
  * its own selection this run. This is a **weighted formula over observable
  * signals**, computed here, in code, from data every earlier step already
  * produced. It is never a number the LLM is asked to invent: an agent asked
@@ -17,27 +17,27 @@ import { MAX_DIFF_CHARS } from '../config.ts';
  * Four signals, each independently meaningful and each in `[0, 1]`:
  *
  * - **diffCompleteness** — did Testpilot see the whole diff? A diff that was
- *   truncated (Phase 1's ~40k character ceiling) means the model reasoned
+ *   truncated (the ~40k character ceiling) means the model reasoned
  *   over a partial picture, which is a severe, known blind spot.
  * - **graphCoverage** — of the changed TypeScript files, how many did the
  *   import graph actually find and analyse? A changed file the graph
- *   couldn't locate (Phase 2) contributes zero reachability information.
+ *   couldn't locate contributes zero reachability information.
  * - **graphCertainty** — of the files the graph *did* find, how trustworthy
  *   is their reachability data? Hitting the depth limit, or a dependency
- *   chain running through a barrel file (Phase 2's `throughBarrel` flag),
+ *   chain running through a barrel file (the `throughBarrel` flag),
  *   both weaken the signal without invalidating it outright.
  * - **selectionCompleteness** — did the model's response actually cover
- *   every test in the inventory? `selectTests`'s warnings (Phase 3) already
+ *   every test in the inventory? `selectTests`'s warnings already
  *   catch this directly: a missing or hallucinated path is a concrete,
  *   measured defect in that specific run's output.
  *
- * The brief also names "share of symbols resolved" as a signal. That's
+ * "Share of symbols resolved" is another candidate signal. It's
  * deliberately folded into `graphCertainty` here rather than built as a
- * separate metric: Phase 1's candidate symbols are regex-derived from diff
- * text and were never cross-referenced against Phase 2's AST-derived
+ * separate metric: the diff tool's candidate symbols are regex-derived from
+ * diff text and were never cross-referenced against the AST-derived
  * declarations at the individual-symbol level, so a dedicated signal would
- * need new plumbing this phase doesn't otherwise require. Worth revisiting
- * if Phase 6's calibration shows the score needs a sharper signal here.
+ * need new plumbing the pipeline doesn't otherwise require. Worth revisiting
+ * if calibration shows the score needs a sharper signal here.
  */
 
 const WEIGHTS = {

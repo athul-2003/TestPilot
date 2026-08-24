@@ -1,7 +1,7 @@
 /**
  * Hand-derived expectations for every seeded scenario, written **before**
- * any scenario was run through Testpilot — per the worksheet's own warning,
- * a fixture tuned until the agent passes is worthless. Nothing in this file
+ * any scenario was run through Testpilot — a fixture tuned until the agent
+ * passes is worthless as evidence. Nothing in this file
  * is edited after seeing real results; a scenario whose result look wrong
  * gets a new scenario or a bug report, not a quietly adjusted expectation.
  *
@@ -99,7 +99,7 @@ export const SCENARIOS: ScenarioGroundTruth[] = [
     whyItMatters:
       'Ideally every test is skippable — an optional field nothing reads yet changes no behavior. ' +
       "Testpilot's import graph does not currently distinguish `import type` from a runtime import (a known, " +
-      'documented limitation, not fixed in this phase), so pricing.test.ts and validate.test.ts are expected ' +
+      'documented limitation, not yet fixed), so pricing.test.ts and validate.test.ts are expected ' +
       'to show up as reachable anyway. That is a measurable efficiency gap, not a missed regression — flagged ' +
       'honestly here before the run, not discovered and explained away after it.',
   },
@@ -133,11 +133,11 @@ export const SCENARIOS: ScenarioGroundTruth[] = [
     expectFallback: false,
     whyItMatters:
       'A genuinely interesting finding, recorded before the run: a change with zero TypeScript files touched ' +
-      'gives the import graph literally nothing to search, which the current confidence formula (Phase 4) ' +
+      'gives the import graph literally nothing to search, which the current confidence formula ' +
       'treats as full certainty (graphCoverage/graphCertainty = 1 when there are no changed TS files) rather ' +
       "than as a blind spot. A config change *could* have real behavioral consequences Testpilot's " +
       'reasoning cannot see at all, and confidence should arguably reflect that — a candidate follow-up, not ' +
-      'something this phase silently patches.',
+      'something silently patched here.',
   },
   {
     name: '06-trip-fallback',

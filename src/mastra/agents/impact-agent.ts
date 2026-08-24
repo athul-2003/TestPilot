@@ -99,7 +99,7 @@ export interface PromptPayload {
  * from where, at what depth, through how weak a chain.
  *
  * Kept separate from {@link buildPromptPayload} so a caller that already has
- * a diff result and an impact result in hand — Phase 4's workflow step,
+ * a diff result and an impact result in hand — the triage workflow,
  * specifically — can correlate them directly instead of paying to
  * re-parse the diff and rebuild the import graph a second time.
  */
@@ -127,19 +127,24 @@ export function correlateTestsWithImpact(
 }
 
 /**
- * Combines the outputs of Phases 1 and 2 with this phase's test inventory
+ * Combines the parsed diff and the import graph with the test inventory
  * into one payload the agent can reason over — the "diff summary, reverse-
  * dependency reach, and test inventory" the agent's prompt needs.
  *
  * A thin, from-scratch wrapper around {@link correlateTestsWithImpact} for
  * standalone use (and for the existing tests in this file) — it re-derives
- * everything from a raw diff string and repo root. Phase 4's workflow step
+ * everything from a raw diff string and repo root. The triage workflow
  * calls `correlateTestsWithImpact` directly instead, reusing the diff and
  * impact results its earlier steps already computed.
  */
 export function buildPromptPayload(repoRoot: string, diff: string, maxDepth: number): PromptPayload {
   const diffResult = parseUnifiedDiff(diff);
-  const changedTsFiles = diffResult.files.filter((f) => f.isTypeScript && !f.isBinary).map((f) => f.path);
+  // Match the import graph's own scope (see triage-workflow.ts's buildImpactStep):
+  // `.d.ts` files are excluded from the graph, so asking it about one always
+  // reads as "deleted" rather than "not graph-tracked."
+  const changedTsFiles = diffResult.files
+    .filter((f) => f.isTypeScript && !f.isBinary && !f.path.endsWith('.d.ts'))
+    .map((f) => f.path);
 
   const graph = buildImportGraph(repoRoot);
   const impacted = changedTsFiles.length > 0 ? computeImpactedFiles(graph, changedTsFiles, maxDepth) : [];
@@ -174,7 +179,7 @@ export interface SelectTestsResult {
  * Sends an already-built payload to the agent and validates the response
  * covers exactly the inventory it was given — this is the half of test
  * selection that's actually a model call, separated from payload assembly
- * so a caller that already has a payload (Phase 4's workflow step) can skip
+ * so a caller that already has a payload (the triage workflow) can skip
  * straight to it.
  */
 export async function runSelection(
@@ -193,22 +198,40 @@ ${JSON.stringify(payload, null, 2)}`;
   const returnedPaths = new Set(response.object.selections.map((s) => s.path));
 
   const warnings: string[] = [];
+
+  // Drop hallucinated selections outright — a path the model invented can't
+  // be run or skipped in this repo, and letting it flow into mustRun/
+  // shouldRun/skip would put a nonexistent file in front of CI.
+  const selections = response.object.selections.filter((s) => {
+    if (inventoryPaths.has(s.path)) return true;
+    warnings.push(`not in the test inventory, dropped: ${s.path}`);
+    return false;
+  });
+
+  // A test the model's response omits entirely must not silently vanish
+  // from every bucket. Rule 4 of this agent's own instructions is "bias
+  // toward inclusion" — an omission is the model's worst-case failure mode,
+  // so it gets the same safe default: must-run.
   for (const path of inventoryPaths) {
-    if (!returnedPaths.has(path)) warnings.push(`missing from the model's response: ${path}`);
-  }
-  for (const path of returnedPaths) {
-    if (!inventoryPaths.has(path)) warnings.push(`not in the test inventory, ignoring: ${path}`);
+    if (returnedPaths.has(path)) continue;
+    warnings.push(`missing from the model's response, defaulted to must-run: ${path}`);
+    selections.push({
+      path,
+      bucket: 'must-run',
+      rationale: 'Auto-added: the model\'s response omitted this test, so it defaults to must-run rather than being silently dropped.',
+      confidence: 0,
+    });
   }
 
-  return { selections: response.object.selections, warnings, usage: response.usage ?? {}, latencyMs };
+  return { selections, warnings, usage: response.usage ?? {}, latencyMs };
 }
 
 /**
- * Runs the full Phase 3 pipeline from scratch: parse the diff, compute
+ * Runs the full selection pipeline from scratch: parse the diff, compute
  * impact reach, build the test inventory, and ask the agent to classify
  * every test. A thin wrapper combining {@link buildPromptPayload} and
  * {@link runSelection} — kept for standalone use and for the existing tests
- * in this file; Phase 4's workflow step calls the two halves separately so
+ * in this file; the triage workflow calls the two halves separately so
  * it can reuse work its earlier steps already did.
  */
 export async function selectTests(

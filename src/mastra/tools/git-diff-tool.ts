@@ -34,7 +34,7 @@ const fileChangeSchema = z.object({
       'Function/class/type/const names touched by this diff, found via pattern matching on the raw text. ' +
         'These are CANDIDATES, not authoritative — regex over diff text cannot see the whole file, so it ' +
         'misses renamed-but-unchanged signatures and can pick up false positives inside strings or comments. ' +
-        'Phase 2 resolves the real symbol set from the AST.',
+        'The AST parse resolves the real symbol set.',
     ),
   truncated: z
     .boolean()
@@ -90,7 +90,7 @@ function isTypeScriptPath(path: string): boolean {
  * conservative: matched against individual added/removed lines, with no
  * knowledge of the surrounding file, so nesting (a method inside a class) is
  * out of reach here. That's fine — the point of this tool is a fast first
- * pass; Phase 2's AST parse is what makes the symbol list trustworthy.
+ * pass; the AST parse is what makes the symbol list trustworthy.
  */
 const SYMBOL_PATTERNS: RegExp[] = [
   /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s+([A-Za-z_$][\w$]*)/,
@@ -335,7 +335,7 @@ export function parseUnifiedDiff(diff: string, maxChars: number = MAX_DIFF_CHARS
  * Reconstructs a new file's full source text from its diff. Valid only for
  * `changeType: 'added'` files — a new file's diff has no context lines and
  * no removed lines, so its hunks' added lines, in order, *are* the entire
- * file. Used by Phase 5's flaky-agent to assess a brand-new test's source
+ * file. Used by the flaky-agent to assess a brand-new test's source
  * without a separate disk read: the diff already contains all of it.
  */
 export function reconstructAddedFileSource(file: FileChange): string {

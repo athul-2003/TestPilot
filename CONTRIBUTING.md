@@ -1,17 +1,17 @@
 # Contributing to Testpilot
 
-Thanks for considering it. This project is young — the roadmap in
-[worksheet.md](worksheet.md) is the most current picture of what's built,
-what's next, and what's been deliberately left for later.
+Thanks for considering it. This project is young — the README is the most
+current picture of what's built, and its "Known limitations" section covers
+what's been deliberately left for later.
 
 ## Before you start
 
-- Read [PROJECT_IDEA_TESTPILOT.md](PROJECT_IDEA_TESTPILOT.md) for the *why*
-  and [worksheet.md](worksheet.md) for the *what's done and what's not*.
+- Read the [README](README.md) for what Testpilot does and, just as
+  importantly, what it doesn't do yet.
 - For anything beyond a small fix, open an issue first. It's a much shorter
-  loop than writing a PR that turns out to conflict with a decision already
-  made (see worksheet.md's "Decisions" table — D1 through D6 cover more
-  ground than you'd expect).
+  loop than writing a PR that turns out to conflict with a design decision
+  already made — several of the non-obvious ones are summarised in the
+  README's "Known limitations".
 - Testpilot's one non-negotiable property is **missed regressions ≈ 0** — a
   skipped test that would have failed. Any change touching test selection,
   confidence scoring, or the flaky budget should explain how it was verified
@@ -76,10 +76,10 @@ grep -rn "the-thing-youre-about-to-use" node_modules/@mastra/core/dist/**/*.d.ts
 ```
 
 This project has caught several real API surprises this way — including a
-`.branch()` output shape that didn't match the original build brief's
-pseudocode, and a `createScorer` that turned out to live in
-`@mastra/core/evals`, not the `@mastra/evals` package its name suggests.
-Docs and memory go stale; the installed `.d.ts` doesn't.
+`.branch()` output shape that didn't match the documented pseudocode, and a
+`createScorer` that turned out to live in `@mastra/core/evals`, not the
+`@mastra/evals` package its name suggests. Docs and memory go stale; the
+installed `.d.ts` doesn't.
 
 ## Reporting a bug
 

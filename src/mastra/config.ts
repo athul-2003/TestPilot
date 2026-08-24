@@ -25,14 +25,16 @@
 export const MODEL = process.env.TESTPILOT_MODEL ?? 'groq/openai/gpt-oss-120b';
 
 /**
- * The model reserved for calls that must be right.
+ * The model intended for calls that must be right — ambiguous test-selection
+ * decisions and calibration runs whose numbers end up published and have to
+ * survive scrutiny.
  *
- * Ambiguous test-selection decisions and the Phase 6 evaluation runs — the
- * numbers that end up in the README and have to survive scrutiny. Everything
- * else uses {@link MODEL}.
- *
- * Keep this deliberate. Every call to it spends real budget, and a tool whose
- * pitch is saving CI minutes has no business being careless with its own cost.
+ * **Not currently wired to anything.** Every agent (impact, flaky, smoke)
+ * hardcodes {@link MODEL}, and this constant is unread outside its own
+ * definition. Dynamic per-call model tiering — routing an ambiguous decision
+ * to a stronger model mid-run — is a real feature this project doesn't have
+ * yet, not a bug being papered over; recorded here instead of left as a
+ * silent gap between what the code claims and what it does.
  */
 export const CRITICAL_MODEL =
   process.env.TESTPILOT_MODEL_CRITICAL ?? 'openai/gpt-5.4-mini';
@@ -41,7 +43,7 @@ export const CRITICAL_MODEL =
  * Below this confidence, Testpilot stops trusting its own selection and falls
  * back to running the whole suite.
  *
- * 0.7 is a reasoned starting value, not a measured one — Phase 6 calibrates it
+ * 0.7 is a reasoned starting value, not a measured one — the regression-guard eval calibrates it
  * against the fixture repo, and the README publishes whatever the evidence
  * supports. Treat it as provisional until then.
  */
@@ -71,8 +73,8 @@ export const MAX_IMPACT_DEPTH = 6;
 
 /**
  * Cache directory name, created inside whichever repo Testpilot is analysing
- * — not this one. Holds the import-graph cache (Phase 2) and the flaky-test
- * history database (Phase 5) — everything that's per-repo, disposable, and
+ * — not this one. Holds the import-graph cache and the flaky-test
+ * history database — everything that's per-repo, disposable, and
  * must stay gitignored in every repo Testpilot runs against. This project's
  * own .gitignore already covers it.
  */
@@ -82,7 +84,7 @@ export const TESTPILOT_CACHE_DIRNAME = '.testpilot-cache';
 export const TEST_HISTORY_DB_FILENAME = 'test-history.db';
 
 /**
- * The confidence level a repeat-run budget (decision **D4**) is solved for:
+ * The confidence level a repeat-run budget is solved for:
  * how sure we want to be, after seeing nothing but green runs, that we
  * weren't just lucky. Higher means more repeats required to trust a result,
  * for the same observed instability.
@@ -95,6 +97,17 @@ export const FLAKY_TARGET_CONFIDENCE = 0.95;
  * past this many repeats, the answer is "fix the test," not "run it more."
  */
 export const FLAKY_REPEAT_CAP = 10;
+
+/**
+ * How many flaky-budget estimates the triage workflow runs at once.
+ *
+ * Each one can make a model call and opens its own short-lived connection to
+ * the repo's history database, so an unbounded fan-out over a large diff
+ * means dozens of concurrent provider requests (inviting rate limits) and
+ * dozens of concurrent SQLite connections to one small file. A modest cap
+ * keeps the step comfortably parallel without either pile-up.
+ */
+export const FLAKY_ESTIMATE_CONCURRENCY = 4;
 
 /**
  * Fallback failure-rate prior for a test with no history of its own, in a
@@ -110,7 +123,7 @@ export const DEFAULT_FLAKE_PRIOR = 0.05;
  * by skipping.
  *
  * **These are placeholders, not measurements.** Testpilot has no real
- * per-test timing data until Phase 5's test-history-tool starts recording
+ * per-test timing data until `test-history-tool` starts recording
  * actual run durations. Every place this constant is used must say so
  * explicitly in its output — "estimated minutes saved" is the number people
  * screenshot, and a hidden assumption here is exactly what would make the
