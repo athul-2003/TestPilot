@@ -42,9 +42,11 @@ Every number below comes from [`fixtures/sample-repo-scenarios/metrics-report.md
 |---|---|
 | **Missed regressions** (the trust metric) | **0 of 6 scenarios** — including one seeding a real, deliberate bug that genuinely broke 3 tests |
 | Confidence calibration | 6/6 scenarios matched their expected confident-vs-fallback outcome |
-| Cost per run | ~1,600–1,900 tokens, ~2.1–2.5 seconds on Groq — comfortably under a $0.05 / 60s budget |
+| Cost per run *(on the 6-scenario fixture repo)* | ~1,600–1,900 tokens, ~2.1–2.5 seconds on Groq |
 
 One of those six scenarios seeds an actual off-by-one bug in a shared utility, breaking three tests transitively — verified by really running the suite, not by asserting what should happen. Testpilot ran all three affected tests; nothing was skipped that shouldn't have been.
+
+**Those cost and latency numbers are from that fixture repo, and they do not generalize.** The prompt carries one entry per test in the suite, so both grow with suite size: a run against this repo's own 29 test files took ~37 seconds, and a 46-file diff produced a request large enough to exceed Groq's free-tier per-minute token limit outright. Testpilot handles that by falling back to running everything and saying so in the report — it never fails the CI step — but "a couple of seconds" is a small-suite figure, not a promise.
 
 **What the eval also found, and didn't hide:** selection efficiency (how many of the safely-skippable tests actually got skipped) was 2 of 20 and 4 of 20 across two separate real runs. The safety property held in both — but Testpilot currently trades away much of its CI-minute-saving upside for extra caution, favoring `should-run` over `skip` more often than a maximally-efficient tool would. That's the honest state of it right now, not something smoothed over for this README. A second finding, about confidence scoring on config-only changes, is recorded under [Known limitations](#known-limitations).
 
@@ -115,6 +117,8 @@ Be clear-eyed about this: **by default, your diff and source metadata are sent t
 Recorded here rather than left for someone to discover the hard way:
 
 - **`should-run` is used far more often than `skip`.** See "Proof, not a pitch" above — the safety property is solid, the efficiency isn't fully there yet.
+- **The prompt grows with the size of your test suite**, because every test in the inventory is described to the model. On a large suite, or a large diff, the request can exceed a provider's per-minute token limit — Groq's free tier caps at 8,000. When that happens Testpilot runs the full suite and reports why, rather than failing; but a big repo will want a provider tier sized for it.
+- **Test discovery is filename-based (`*.test.ts` / `*.spec.ts`) and does not read your Vitest `include`/`exclude` config.** A file your test runner is configured to ignore can still show up in the inventory and get classified. It costs prompt space and noise, never correctness.
 - **A change touching zero TypeScript files (e.g. `package.json`) currently scores maximum confidence**, despite Testpilot having no real insight into what it might do. The confidence formula treats "nothing to search" as full certainty rather than a blind spot. Recorded as a candidate refinement, not yet implemented.
 - **`import type` isn't distinguished from a runtime import** when building the dependency graph, so a purely type-level change can still show up as reachable and get over-included. Safe (never causes a missed regression), just less efficient than it could be.
 - **No Node package-exports (`"exports"` field) resolution** — a bare specifier that only resolves through that mechanism is treated as external and produces no edge.

@@ -95,6 +95,13 @@ const buildImpactStep = createStep({
 const selectTestsOutputSchema = z.object({
   selections: z.array(selectedTestSchema),
   testInventory: z.array(testFileSchema),
+  /**
+   * True when the selection call itself failed — a provider outage, a rate
+   * limit, a malformed response. Distinct from "the model answered and we
+   * didn't trust the answer": there is no answer at all, so the run is
+   * forced down the run-everything branch below.
+   */
+  selectionFailed: z.boolean(),
   warnings: z.array(z.string()),
   usage: z.object({
     inputTokens: z.number().optional(),
@@ -129,14 +136,33 @@ const selectTestsStep = createStep({
       tests,
     };
 
-    const result = await runSelection(payload, impactAgent);
-    return {
-      selections: result.selections,
-      testInventory: inventory.tests,
-      warnings: result.warnings,
-      usage: result.usage,
-      latencyMs: result.latencyMs,
-    };
+    // A failed selection call must not fail the run. Testpilot's whole
+    // safety story is "when we can't trust the reasoning, run everything" —
+    // a provider outage or a rate limit is the strongest possible version of
+    // not being able to trust it, so it takes the same path a low-confidence
+    // result does instead of breaking the user's CI step. The reason is
+    // reported rather than swallowed.
+    try {
+      const result = await runSelection(payload, impactAgent);
+      return {
+        selections: result.selections,
+        testInventory: inventory.tests,
+        selectionFailed: false,
+        warnings: result.warnings,
+        usage: result.usage,
+        latencyMs: result.latencyMs,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        selections: [],
+        testInventory: inventory.tests,
+        selectionFailed: true,
+        warnings: [`Test selection failed, so every test is being run as a safety net. Cause: ${message}`],
+        usage: {},
+        latencyMs: 0,
+      };
+    }
   },
 });
 
@@ -254,12 +280,21 @@ const scoreConfidenceStep = createStep({
     const impactResult = getStepResult(buildImpactStep);
     const selectResult = getStepResult(selectTestsStep);
 
-    return computeConfidence({
+    const scored = computeConfidence({
       diff: diffResult,
       impacted: impactResult.impacted,
       inventorySize: selectResult.testInventory.length,
       selectionWarningCount: selectResult.warnings.length,
     });
+
+    // No selection at all means no reasoning to score. Zero forces the
+    // run-everything branch rather than letting the other signals average
+    // out to something that looks like confidence.
+    if (selectResult.selectionFailed) {
+      return { confidence: 0, signals: { ...scored.signals, selectionCompleteness: 0 } };
+    }
+
+    return scored;
   },
 });
 
@@ -283,6 +318,7 @@ const runAllStep = createStep({
       selections: [],
       totalTestCount: allPaths.length,
       flakyBudgets: flakyResult.flakyBudgets,
+      warnings: selectResult.warnings,
     });
 
     return {
@@ -325,6 +361,7 @@ const buildReportStep = createStep({
       selections: selectResult.selections,
       totalTestCount: selectResult.testInventory.length,
       flakyBudgets: flakyResult.flakyBudgets,
+      warnings: selectResult.warnings,
     });
 
     return {
