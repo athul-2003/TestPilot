@@ -1,7 +1,7 @@
 {
-  "name": "testpilot",
+  "name": "testpilot-ci",
   "version": "0.1.0",
-  "description": "Launchable-style test selection, but open-source, self-hostable, explainable, and works with zero setup — built on Mastra.",
+  "description": "Launchable-style test selection, but open-source, self-hostable, explainable, and working on day one — built on Mastra.",
   "license": "Apache-2.0",
   "type": "module",
   "engines": {

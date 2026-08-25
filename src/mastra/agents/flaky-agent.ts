@@ -97,7 +97,7 @@ ${sourceText}
 \`\`\``;
 
   const startedAt = Date.now();
-  const response = await generator.generate(prompt, { structuredOutput: { schema: flakyAssessmentOutputSchema } });
+  const response = await generator.generate(prompt, { structuredOutput: { schema: flakyAssessmentOutputSchema }, modelSettings: { temperature: 0 } });
   const latencyMs = Date.now() - startedAt;
 
   return { assessment: response.object, usage: response.usage ?? {}, latencyMs };

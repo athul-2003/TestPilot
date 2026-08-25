@@ -11,7 +11,15 @@ import type { z } from 'zod';
 export interface StructuredGenerator<TSchema extends z.ZodTypeAny> {
   generate(
     prompt: string,
-    options: { structuredOutput: { schema: TSchema } },
+    options: {
+      structuredOutput: { schema: TSchema };
+      /**
+       * Per-call model settings. Testpilot passes `temperature: 0` on every
+       * call — these agents classify rather than compose, and the same diff
+       * should produce the same answer twice.
+       */
+      modelSettings?: { temperature?: number };
+    },
   ): Promise<{
     object: z.infer<TSchema>;
     usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
