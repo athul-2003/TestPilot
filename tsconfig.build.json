@@ -21,11 +21,11 @@
     // emitted output, so the compiled package resolves correctly.
     "rewriteRelativeImportExtensions": true,
 
-    // Consumers get types, and the source maps point back at the real
-    // TypeScript so a stack trace from an installed copy stays readable.
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true
+    // Consumers get types. No source or declaration maps: the package ships
+    // compiled output without the TypeScript sources, so every map would
+    // point at a file that isn't there — dead weight and broken references
+    // rather than better stack traces.
+    "declaration": true
   },
   // Tests and the evaluation harness are development tooling: the harness
   // reads fixtures that the package deliberately doesn't ship, so compiling
