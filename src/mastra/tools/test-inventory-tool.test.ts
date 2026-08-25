@@ -88,6 +88,38 @@ describe('buildTestInventory, against the fixture tree', () => {
     expect(second.tests).toEqual(first.tests);
   });
 
+  it('discovers JavaScript test files, not only TypeScript ones', () => {
+    // Testpilot never runs your tests, so the runner is irrelevant — but the
+    // *language* was, until this: a plain JavaScript project matched nothing
+    // and got an empty inventory.
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'testpilot-inventory-js-'));
+    try {
+      mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+      const files = {
+        'math.test.js': "describe('math', () => { it('adds', () => {}); });",
+        'cart.spec.jsx': "describe('cart', () => { it('totals', () => {}); });",
+        'util.test.mjs': "describe('util', () => { it('works', () => {}); });",
+        'legacy.test.cjs': "describe('legacy', () => { it('still works', () => {}); });",
+        'notatest.js': 'export const x = 1;',
+      };
+      for (const [name, body] of Object.entries(files)) {
+        writeFileSync(path.join(repoRoot, 'src', name), body);
+      }
+
+      const result = buildTestInventory(repoRoot, cacheDir);
+      expect(result.tests.map((t) => t.path).sort()).toEqual([
+        'src/cart.spec.jsx',
+        'src/legacy.test.cjs',
+        'src/math.test.js',
+        'src/util.test.mjs',
+      ]);
+      // Titles are extracted from JavaScript exactly as from TypeScript.
+      expect(result.tests.find((t) => t.path === 'src/math.test.js')!.testTitles).toEqual(['math', 'adds']);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
   it('re-parses a test file whose contents actually changed', () => {
     const repoRoot = mkdtempSync(path.join(tmpdir(), 'testpilot-inventory-repo-'));
     try {

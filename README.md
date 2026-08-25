@@ -65,7 +65,8 @@ A further finding, about confidence scoring on config-only changes, is under [Kn
 
 - **Node.js 22.18+** (24 LTS recommended) — Testpilot runs its TypeScript entry point directly, and Node enables that by default from 22.18
 - **An API key for one model provider** — Groq or OpenAI by default, or any provider Mastra's router supports. See [Setup](#setup) below.
-- A TypeScript project using **Vitest** — the first ecosystem targeted. Python/pytest is planned as a second adapter.
+- **A TypeScript or JavaScript project.** `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs` are all indexed.
+- **Any test runner.** Testpilot never executes your tests — it reports which ones to run — so Vitest, Jest, Mocha, AVA and `node:test` all work the same. Test files are found by convention: `*.test.*` / `*.spec.*`.
 
 ## Setup
 
@@ -215,7 +216,7 @@ Recorded here rather than left for someone to discover the hard way:
 - **`import type` isn't distinguished from a runtime import** when building the dependency graph, so a purely type-level change can still show up as reachable and get over-included. Safe (never causes a missed regression), just less efficient than it could be.
 - **No Node package-exports (`"exports"` field) resolution** — a bare specifier that only resolves through that mechanism is treated as external and produces no edge.
 - **The diff-size ceiling is ~40k characters.** Past that, files are truncated and confidence drops accordingly, rather than reasoning silently over a partial picture.
-- **TypeScript + Vitest only, for now.** Python/pytest is planned as a second adapter, not yet built.
+- **The JavaScript/TypeScript ecosystem only.** The import graph is built with the TypeScript compiler API, which parses both languages but no others — a Python or Go repository gets no reachability signal at all. Any test *runner* is fine, since Testpilot never executes tests; the limit is the language, not the framework. Python/pytest would need a second graph builder and isn't built.
 - **Minutes-saved is a placeholder, not a measurement.** It assumes 0.1 min/unit test, 0.5 min/integration test, 2 min/e2e test — stated in every report, not just here — until real per-test timing data exists.
 
 ## Development

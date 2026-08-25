@@ -201,6 +201,33 @@ describe('resolveModuleSpecifier', () => {
     expect(resolveModuleSpecifier('src/mid.ts', './utils', undefined, existingFiles)).toBe('src/utils/index.ts');
   });
 
+  it('resolves a real JavaScript file, not just its TypeScript twin', () => {
+    // A plain JS repo imports './math.js' and means exactly that. An earlier
+    // version only ever rewrote .js -> .ts for Node16-style ESM, so a
+    // JavaScript project got an empty graph and no reachability at all.
+    const jsFiles = new Set(['src/math.js', 'src/app.jsx', 'src/util.mjs', 'src/legacy.cjs']);
+    expect(resolveModuleSpecifier('src/cart.js', './math.js', undefined, jsFiles)).toBe('src/math.js');
+    expect(resolveModuleSpecifier('src/cart.js', './app.jsx', undefined, jsFiles)).toBe('src/app.jsx');
+    expect(resolveModuleSpecifier('src/cart.js', './util.mjs', undefined, jsFiles)).toBe('src/util.mjs');
+    expect(resolveModuleSpecifier('src/cart.js', './legacy.cjs', undefined, jsFiles)).toBe('src/legacy.cjs');
+  });
+
+  it('still rewrites .js to .ts when only the TypeScript file exists', () => {
+    // Node16/NodeNext ESM: the source imports the compiled path. Both
+    // conventions have to work, and the literal file must win when present.
+    const tsOnly = new Set(['src/math.ts']);
+    expect(resolveModuleSpecifier('src/cart.ts', './math.js', undefined, tsOnly)).toBe('src/math.ts');
+
+    const both = new Set(['src/math.ts', 'src/math.js']);
+    expect(resolveModuleSpecifier('src/cart.ts', './math.js', undefined, both)).toBe('src/math.js');
+  });
+
+  it('resolves an extensionless import to a JavaScript file', () => {
+    const jsFiles = new Set(['src/helper.js', 'src/widget/index.jsx']);
+    expect(resolveModuleSpecifier('src/a.js', './helper', undefined, jsFiles)).toBe('src/helper.js');
+    expect(resolveModuleSpecifier('src/a.js', './widget', undefined, jsFiles)).toBe('src/widget/index.jsx');
+  });
+
   it('leaves an external package specifier unresolved', () => {
     expect(resolveModuleSpecifier('src/mid.ts', 'zod', undefined, existingFiles)).toBeUndefined();
   });

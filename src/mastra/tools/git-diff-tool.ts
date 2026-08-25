@@ -78,7 +78,7 @@ const HUNK_HEADER_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 const BINARY_PREFIX = 'Binary files ';
 const BINARY_SUFFIX = ' differ';
 
-const TS_EXTENSIONS = new Set(['.ts', '.tsx']);
+const TS_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs']);
 
 function isTypeScriptPath(path: string): boolean {
   const dot = path.lastIndexOf('.');

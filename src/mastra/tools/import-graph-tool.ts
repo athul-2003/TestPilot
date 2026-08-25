@@ -90,7 +90,7 @@ const DEFAULT_EXCLUDE_DIRS = new Set([
 ]);
 
 /**
- * Repo-relative, forward-slash paths of every .ts/.tsx file, .d.ts excluded.
+ * Repo-relative, forward-slash paths of every TypeScript or JavaScript
  * Exported for reuse by test-inventory-tool.ts, so the excluded-directories
  * list and the walking logic itself live in exactly one place.
  */
@@ -110,7 +110,7 @@ export function walkTypeScriptFiles(repoRoot: string, cacheDirName: string): str
       if (entry.isDirectory()) {
         if (excluded.has(entry.name)) continue;
         walk(path.join(absDir, entry.name), relPath);
-      } else if (entry.isFile() && /\.tsx?$/.test(entry.name) && !entry.name.endsWith('.d.ts')) {
+      } else if (entry.isFile() && SOURCE_FILE_RE.test(entry.name) && !entry.name.endsWith('.d.ts')) {
         results.push(relPath);
       }
     }
@@ -179,8 +179,24 @@ function matchAlias(specifier: string, alias: AliasConfig): string[] {
 
 // --- Module resolution ---------------------------------------------------
 
+/**
+ * Extensions the graph indexes, in resolution-preference order.
+ *
+ * JavaScript is included deliberately: TypeScript's parser handles `.js`
+ * and `.jsx` natively, so supporting them costs nothing but the list, and
+ * excluding them would mean a plain JavaScript repository — by far the
+ * larger ecosystem — got an empty graph and no reachability signal at all.
+ */
+const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'] as const;
+
+/** Matches any file the graph will index. */
+export const SOURCE_FILE_RE = /\.(?:tsx?|mts|cts|jsx?|mjs|cjs)$/;
+
 function extensionCandidates(basePosixNoExt: string): string[] {
-  return [`${basePosixNoExt}.ts`, `${basePosixNoExt}.tsx`, `${basePosixNoExt}/index.ts`, `${basePosixNoExt}/index.tsx`];
+  return [
+    ...SOURCE_EXTENSIONS.map((ext) => `${basePosixNoExt}${ext}`),
+    ...SOURCE_EXTENSIONS.map((ext) => `${basePosixNoExt}/index${ext}`),
+  ];
 }
 
 /**
@@ -216,17 +232,22 @@ export function resolveModuleSpecifier(
   }
 
   for (const base of baseCandidates) {
-    if (/\.tsx?$/.test(base)) {
+    if (SOURCE_FILE_RE.test(base)) {
+      // The literal path wins when it exists — in a JavaScript repo, `./x.js`
+      // really is `x.js`.
       if (existingFiles.has(base)) return base;
-      continue;
-    }
-    if (/\.jsx?$/.test(base)) {
-      // Node16/NodeNext-style ESM: source imports the compiled ".js" path,
-      // but the file on disk is still ".ts" — this project's own imports
-      // work the opposite way (explicit ".ts"), but both conventions exist
-      // in the wild.
-      const swapped = base.replace(/\.jsx?$/, (m) => (m === '.js' ? '.ts' : '.tsx'));
-      if (existingFiles.has(swapped)) return swapped;
+
+      // Otherwise, Node16/NodeNext-style ESM: the source imports the
+      // *compiled* ".js" path while the file on disk is still ".ts". Both
+      // conventions exist in the wild, so try the TypeScript twin before
+      // giving up.
+      const swapped = base.replace(/\.(jsx?|mjs|cjs)$/, (m) => {
+        if (m === '.jsx') return '.tsx';
+        if (m === '.mjs') return '.mts';
+        if (m === '.cjs') return '.cts';
+        return '.ts';
+      });
+      if (swapped !== base && existingFiles.has(swapped)) return swapped;
       continue;
     }
     for (const candidate of extensionCandidates(base)) {

@@ -51,7 +51,15 @@ export type TestType = z.infer<typeof testTypeSchema>;
 export type TestFileInfo = z.infer<typeof testFileSchema>;
 export type TestInventoryResult = z.infer<typeof testInventoryOutputSchema>;
 
-const TEST_FILE_RE = /\.(test|spec)\.tsx?$/;
+/**
+ * Test files by naming convention, across TypeScript and JavaScript alike.
+ *
+ * Convention rather than configuration: Testpilot never runs your tests, so
+ * it has no test runner to ask. That also means the runner genuinely does
+ * not matter — Vitest, Jest, Mocha, AVA and `node:test` all produce files
+ * matching this shape, and Testpilot only reports which of them to run.
+ */
+const TEST_FILE_RE = /\.(test|spec)\.(?:tsx?|mts|cts|jsx?|mjs|cjs)$/;
 
 // --- Classification --------------------------------------------------------
 
