@@ -3,7 +3,8 @@ import { z } from 'zod';
 
 import { flakyAgent, computeFlakyBudget } from '../agents/flaky-agent.ts';
 import { impactAgent, correlateTestsWithImpact, runSelection, selectedTestSchema, type PromptPayload } from '../agents/impact-agent.ts';
-import { ASSUMED_MINUTES_PER_TEST, CONFIDENCE_THRESHOLD, FLAKY_ESTIMATE_CONCURRENCY, MAX_IMPACT_DEPTH } from '../config.ts';
+import { ASSUMED_MINUTES_PER_TEST, CONFIDENCE_THRESHOLD, FLAKY_ESTIMATE_CONCURRENCY, MAX_IMPACT_DEPTH, MODEL } from '../config.ts';
+import { explainSelectionFailure } from '../provider-credentials.ts';
 import { ciAnnotateInputSchema, flakyBudgetEntrySchema, renderReport } from '../tools/ci-annotate-tool.ts';
 import { gitDiffOutputSchema, parseUnifiedDiff, reconstructAddedFileSource } from '../tools/git-diff-tool.ts';
 import { buildImportGraph, computeImpactedFiles, importGraphOutputSchema } from '../tools/import-graph-tool.ts';
@@ -158,7 +159,11 @@ const selectTestsStep = createStep({
         selections: [],
         testInventory: inventory.tests,
         selectionFailed: true,
-        warnings: [`Test selection failed, so every test is being run as a safety net. Cause: ${message}`],
+        // A missing key is the single likeliest first-run failure, and the
+        // provider's own message ("Could not find API key ...") tells the
+        // reader nothing about how to fix it. Attach the setup steps to the
+        // place they actually see the failure: the pull-request comment.
+        warnings: [explainSelectionFailure(message, MODEL)],
         usage: {},
         latencyMs: 0,
       };
