@@ -49,3 +49,4 @@ jobs:
         uses: ./
         with:
           groq-api-key: ${{ secrets.GROQ_API_KEY }}
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}

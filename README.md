@@ -87,6 +87,21 @@ then pass it to the action (the [example workflow](examples/testpilot-workflow.y
 
 Locally, put it in `.env` instead — `cp .env.example .env` and fill in the key.
 
+### Using OpenAI instead
+
+Any provider Mastra's router supports works. **The key alone isn't enough — you also have to point the model at that provider**, or Testpilot keeps using its Groq default and your key goes unused:
+
+```yaml
+- uses: athul-2003/TestPilot@v0.1.0
+  with:
+    openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+    model: openai/gpt-5.4-mini      # required, or it still tries Groq
+```
+
+Locally, the equivalent is `OPENAI_API_KEY=...` plus `TESTPILOT_MODEL=openai/gpt-5.4-mini` in `.env`.
+
+This is worth doing: as the table in [Proof, not a pitch](#proof-not-a-pitch) shows, a stronger model skipped 16–18 of 20 safely-skippable tests against 2 of 20 for the free-tier default. If you supply one key but leave the model pointing elsewhere, Testpilot notices and says so in the report rather than just failing.
+
 **Why you have to do this yourself.** The key is tied to your own account and billing, so nothing Testpilot installs can create one for you, and a package that wrote credentials during install would be indistinguishable from a supply-chain attack. It's the same one-time step Codecov, Snyk, and Datadog need. If you forget it, Testpilot doesn't break your build: it runs the full suite and prints these instructions in the pull-request comment.
 
 **"Working on day one" means no *data* setup** — no coverage map, no training corpus, no history of past runs, which is what comparable tools require before they do anything useful. It does not mean no API key.
