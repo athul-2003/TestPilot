@@ -5,6 +5,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
+import { MODEL } from './mastra/config.ts';
+import { checkModelCredentials, credentialGuidance } from './mastra/provider-credentials.ts';
 import { triageWorkflow } from './mastra/workflows/triage-workflow.ts';
 
 /**
@@ -133,6 +135,16 @@ async function main(): Promise<void> {
   if (options === 'help') {
     printUsage();
     return;
+  }
+
+  // Say something useful *before* walking the repo and building a graph,
+  // rather than letting the run reach the model and fail there. This is a
+  // warning, not an error: an unrecognised provider may be a local endpoint
+  // that needs no key, and Testpilot still produces a valid run-everything
+  // report either way.
+  const credentials = checkModelCredentials(MODEL);
+  if (!credentials.satisfied) {
+    console.error(`Warning: ${credentialGuidance(credentials)}\n`);
   }
 
   const diff = options.diffFile

@@ -1,6 +1,6 @@
 # Testpilot
 
-> Launchable-style test selection, but open-source, self-hostable, explainable, and works with zero setup — built on [Mastra](https://mastra.ai).
+> Launchable-style test selection, but open-source, self-hostable, explainable, and working on day one — built on [Mastra](https://mastra.ai).
 
 **Status:** early, but real and verified end-to-end — including against a real repository with a deliberately injected bug — diff parsing, impact mapping, LLM-reasoned selection, confidence scoring with a run-everything fallback, flaky-repeat budgets, and a ground-truth eval proving **0 missed regressions** across every scenario tested. Ships as a CLI and a GitHub Action. Not yet published to npm — see [Installing](#installing).
 
@@ -62,8 +62,36 @@ A further finding, about confidence scoring on config-only changes, is under [Kn
 ## Requirements
 
 - **Node.js 22.18+** (24 LTS recommended) — Testpilot runs its TypeScript entry point directly, and Node enables that by default from 22.18
-- An API key for at least one model provider — **Groq** or **OpenAI** by default, though Mastra's router accepts any provider it supports
+- **An API key for one model provider** — Groq or OpenAI by default, or any provider Mastra's router supports. See [Setup](#setup) below.
 - A TypeScript project using **Vitest** — the first ecosystem targeted. Python/pytest is planned as a second adapter.
+
+## Setup
+
+Two steps, once per repository.
+
+**1. Get a provider key.** Groq's free tier is enough to try it: [console.groq.com/keys](https://console.groq.com/keys).
+
+**2. Give it to Testpilot.** In CI, that's a repository secret:
+
+```bash
+gh secret set GROQ_API_KEY        # paste the key when prompted
+```
+
+then pass it to the action (the [example workflow](examples/testpilot-workflow.yml) already does):
+
+```yaml
+- uses: athul-2003/TestPilot@v0.1.0
+  with:
+    groq-api-key: ${{ secrets.GROQ_API_KEY }}
+```
+
+Locally, put it in `.env` instead — `cp .env.example .env` and fill in the key.
+
+**Why you have to do this yourself.** The key is tied to your own account and billing, so nothing Testpilot installs can create one for you, and a package that wrote credentials during install would be indistinguishable from a supply-chain attack. It's the same one-time step Codecov, Snyk, and Datadog need. If you forget it, Testpilot doesn't break your build: it runs the full suite and prints these instructions in the pull-request comment.
+
+**"Working on day one" means no *data* setup** — no coverage map, no training corpus, no history of past runs, which is what comparable tools require before they do anything useful. It does not mean no API key.
+
+**To use a local or self-hosted model, there's no key at all** — point `TESTPILOT_MODEL` at your endpoint and Testpilot never contacts a third party. See [Privacy](#privacy).
 
 ## Installing
 
