@@ -202,7 +202,22 @@ export async function runSelection(
 ${JSON.stringify(budgeted.payload, null, 2)}`;
 
   const startedAt = Date.now();
-  const response = await generator.generate(prompt, { structuredOutput: { schema: testSelectionOutputSchema } });
+  // Temperature 0, because this is a classification rather than a
+  // composition: the same diff against the same repo ought to produce the
+  // same selection, and "explainable" means little if the explanation
+  // changes between runs.
+  //
+  // Measured honestly, this does *not* eliminate the variance. Repeated runs
+  // of the identical evaluation still skipped 13 and 18 of the same 20
+  // safely-skippable tests with temperature pinned — reasoning models
+  // generally ignore the parameter. It is kept because it is correct for the
+  // task and does help on models that honour it, not because it solved the
+  // problem. Missed regressions read 0 in every run either way, which is the
+  // number that actually has to hold.
+  const response = await generator.generate(prompt, {
+    structuredOutput: { schema: testSelectionOutputSchema },
+    modelSettings: { temperature: 0 },
+  });
   const latencyMs = Date.now() - startedAt;
 
   const inventoryPaths = new Set(budgeted.payload.tests.map((t) => t.path));

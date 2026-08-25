@@ -174,6 +174,28 @@ When a change doesn't fit, Testpilot trims in a fixed order — dependent lists 
 
 The default sits under Groq's free-tier 8,000 tokens/minute. A 47-file diff against this repo — which previously failed outright — now completes in ~5,300 tokens, classifying the 5 most-reachable tests and deferring 25 to `should-run`.
 
+### Sizing it for your suite
+
+**This setting decides whether a large repo saves anything.** Describing one test costs roughly 100 tokens, so a rough starting point is:
+
+```
+TESTPILOT_MAX_REQUEST_TOKENS ≈ 3,200 + (100 × number of test files)
+```
+
+Measured on a synthetic **301-test** repository with a real dependency graph, changing a module that 100 of them transitively import:
+
+| | Default (7,000) | Sized for the suite (60,000) |
+|---|---|---|
+| Tests classified | 43 of 301 | **301 of 301** |
+| Skipped | 0 | **152** |
+| Estimated minutes saved | 0.0 | **15.2** |
+| **Missed regressions** | **0** | **0** |
+| Wall clock | ~35s | ~56s |
+
+Safety held at both settings — the 258 tests the small budget withheld all defaulted to `should-run` and ran. But on the free-tier default a large suite is *perfectly safe and completely pointless*: it spends tokens and saves nothing. Raise the budget to match your suite, or accept that a big repo will mostly fall back.
+
+That run also exercised the omission guard for real: two tests were missing from the model's response and were defaulted to `must-run` rather than disappearing from every bucket.
+
 > **This choice decides whether Testpilot saves you anything.** The default is a fast, free-tier-friendly model, which makes it a good way to *try* Testpilot — but as the table in [Proof, not a pitch](#proof-not-a-pitch) shows, it skipped only 2 of 20 safely-skippable tests, against 13–18 of 20 for `openai/gpt-5.4-mini`. Both were equally safe; only one actually saved CI time. **For real use, point `TESTPILOT_MODEL` at a stronger reasoning model** and verify with `npm run eval` on your own repo.
 
 `TESTPILOT_MODEL_CRITICAL` also exists in `src/mastra/config.ts`, reserved for a future dynamic-tiering feature (routing genuinely ambiguous selection calls to a stronger model mid-run) — it's not wired into any agent yet, disclosed here rather than left as a gap between what's documented and what runs.
@@ -187,7 +209,7 @@ Be clear-eyed about this: **by default, your diff and source metadata are sent t
 Recorded here rather than left for someone to discover the hard way:
 
 - **Selection efficiency depends heavily on the model.** On the default free-tier model, `should-run` swamps `skip` and the savings approach zero; on a stronger model the same eval skips 13–18 of 20. Safety held in every run either way — see "Proof, not a pitch" above.
-- **The prompt grows with the size of your test suite**, because every test in the inventory is described to the model. On a large suite, or a large diff, the request can exceed a provider's per-minute token limit — Groq's free tier caps at 8,000. When that happens Testpilot runs the full suite and reports why, rather than failing; but a big repo will want a provider tier sized for it.
+- **The prompt grows with the size of your test suite**, because every test in the inventory is described to the model — so the token budget has to be sized to the suite or a large repo saves nothing. Measured at 301 tests: safe at every setting, but 0 minutes saved on the free-tier default versus 15.2 with the budget raised. See [Sizing it for your suite](#sizing-it-for-your-suite).
 - **Test discovery is filename-based (`*.test.ts` / `*.spec.ts`) and does not read your Vitest `include`/`exclude` config.** A file your test runner is configured to ignore can still show up in the inventory and get classified. It costs prompt space and noise, never correctness.
 - **A change touching zero TypeScript files (e.g. `package.json`) currently scores maximum confidence**, despite Testpilot having no real insight into what it might do. The confidence formula treats "nothing to search" as full certainty rather than a blind spot. Recorded as a candidate refinement, not yet implemented.
 - **`import type` isn't distinguished from a runtime import** when building the dependency graph, so a purely type-level change can still show up as reachable and get over-included. Safe (never causes a missed regression), just less efficient than it could be.
