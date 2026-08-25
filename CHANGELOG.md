@@ -34,7 +34,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
-- **Documented that model choice, not design, drives selection efficiency.** The same evaluation skips 2 of 20 safely-skippable tests on the default free-tier model and 16–18 of 20 on `openai/gpt-5.4-mini`. Safety held on both; savings did not. This was previously published as a design limitation.
+- **Documented that model choice, not design, drives selection efficiency.** The same evaluation skips 2 of 20 safely-skippable tests on the default free-tier model and 13–18 of 20 on `openai/gpt-5.4-mini`. Safety held on both; savings did not. This was previously published as a design limitation.
 - Cost and latency figures are now labelled as fixture-scale and explained, rather than presented as general. Real suites are substantially slower.
 - The metrics report records which model produced it.
 - Flaky-budget estimates run with bounded concurrency and per-item error isolation; one failure no longer sinks the rest.
