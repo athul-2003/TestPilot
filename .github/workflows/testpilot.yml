@@ -49,3 +49,9 @@ jobs:
         uses: ./
         with:
           groq-api-key: ${{ secrets.GROQ_API_KEY }}
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          # Testpilot's own README recommends a stronger reasoning model for real
+          # savings: the free-tier default is equally safe but skips almost
+          # nothing (2/20 against 16-18/20 on the eval). This repo follows its
+          # own advice, so its PRs show what the tool actually does.
+          model: openai/gpt-5.4-mini

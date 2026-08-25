@@ -62,11 +62,46 @@ export function checkModelCredentials(
 }
 
 /**
+ * Any *other* known provider whose key is already configured.
+ *
+ * Worth checking before telling someone to go get a credential: supplying
+ * an OpenAI key while leaving the model at its Groq default is an easy and
+ * entirely reasonable mistake — the Action's own inputs invite it by
+ * accepting either key — and the fix is one setting, not a signup.
+ */
+export function availableAlternativeProvider(
+  exclude: string,
+  env: Record<string, string | undefined> = process.env,
+): { provider: string; envVar: string } | undefined {
+  for (const [provider, envVar] of Object.entries(PROVIDER_ENV_VARS)) {
+    if (provider === exclude) continue;
+    const value = env[envVar];
+    if (value !== undefined && value.trim() !== '') return { provider, envVar };
+  }
+  return undefined;
+}
+
+/**
  * The setup instructions for a missing credential, covering both places
  * someone runs Testpilot — a pull request and their own terminal.
  */
-export function credentialGuidance(status: CredentialStatus): string {
+export function credentialGuidance(
+  status: CredentialStatus,
+  env: Record<string, string | undefined> = process.env,
+): string {
   if (status.satisfied || !status.envVar) return '';
+
+  // If they already hold a usable key for a different provider, the right
+  // advice is "point the model at what you have", not "go create an account".
+  const alternative = availableAlternativeProvider(status.provider, env);
+  if (alternative) {
+    return (
+      `${status.envVar} is not set, but ${alternative.envVar} is. ` +
+      `Testpilot is configured to use ${status.provider}, so the key you already have went unused. ` +
+      `To use it, point \`TESTPILOT_MODEL\` at ${alternative.provider} ` +
+      `(in the Action, the \`model:\` input) — or supply a ${status.provider} key as well.`
+    );
+  }
 
   const actionInput = `${status.provider}-api-key`;
   return (
@@ -95,6 +130,6 @@ export function explainSelectionFailure(errorMessage: string, model: string, env
   if (!looksLikeCredentialFailure(errorMessage)) return base;
 
   const status = checkModelCredentials(model, env);
-  const guidance = credentialGuidance(status);
+  const guidance = credentialGuidance(status, env);
   return guidance ? `${base}\n\n  **Setup:** ${guidance}` : base;
 }

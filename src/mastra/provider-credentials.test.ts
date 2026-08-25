@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  availableAlternativeProvider,
   checkModelCredentials,
   credentialGuidance,
   explainSelectionFailure,
@@ -59,6 +60,36 @@ describe('credentialGuidance', () => {
 
   it('says nothing when the credential is fine', () => {
     expect(credentialGuidance(checkModelCredentials('groq/x', { GROQ_API_KEY: 'k' }))).toBe('');
+  });
+
+  it('points at a key the user already has rather than telling them to get one', () => {
+    // The Action accepts either groq-api-key or openai-api-key, so supplying
+    // only OpenAI while leaving the model at its Groq default is an easy and
+    // reasonable mistake. Telling that user to go create a Groq account —
+    // when a usable key is sitting right there — is the wrong advice.
+    const env = { OPENAI_API_KEY: 'sk-real' };
+    const guidance = credentialGuidance(checkModelCredentials('groq/openai/gpt-oss-120b', env), env);
+
+    expect(guidance).toContain('but OPENAI_API_KEY is');
+    expect(guidance).toContain('TESTPILOT_MODEL');
+    expect(guidance).toContain('model:');
+    // It must NOT send them off to obtain a Groq key.
+    expect(guidance).not.toContain('gh secret set GROQ_API_KEY');
+  });
+});
+
+describe('availableAlternativeProvider', () => {
+  it('finds another provider whose key is configured', () => {
+    expect(availableAlternativeProvider('groq', { OPENAI_API_KEY: 'k' })).toEqual({
+      provider: 'openai',
+      envVar: 'OPENAI_API_KEY',
+    });
+  });
+
+  it('ignores the excluded provider and blank values', () => {
+    expect(availableAlternativeProvider('groq', { GROQ_API_KEY: 'k' })).toBeUndefined();
+    expect(availableAlternativeProvider('groq', { OPENAI_API_KEY: '  ' })).toBeUndefined();
+    expect(availableAlternativeProvider('groq', {})).toBeUndefined();
   });
 });
 
